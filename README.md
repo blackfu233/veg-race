@@ -1,100 +1,62 @@
-# vinext-starter
+# Veggie Dash — 蔬菜跑跑
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+手機直向 Crash Game 互動 Demo。玩家有 8 秒選擇角色與下注，最多同時進行兩注；開跑後可在追兵抓到角色前手動或自動 Cash Out。
 
-## Prerequisites
+> 本專案只使用虛擬籌碼。96% 是數學模型的長期理論與測試目標，不代表真實金錢遊戲、法規認證或第三方實驗室驗證。
 
-- Node.js `>=22.13.0`
+## 遊戲內容
 
-## Quick Start
+- 10 個能力鮮明的蔬菜角色與 55 種雙角色組合
+- 兩個獨立下注面板，可使用不同角色、金額與 Auto Cashout 倍率
+- 四幀角色跑步動畫、移動背景、雙路追兵、Cash Out 與被捕特效
+- SHA-256 回合承諾；爆點與角色隨機效果都預先由同一組 Seed 決定
+- 單角與雙角組合依指定策略倍率校準至 96% 長期理論 RTP
+- 手機安全區、觸控操作、禁止意外頁面縮放與小螢幕排版
+
+## 爆點曲線
+
+每局先產生 Server Seed，並在下注前公開 `SHA-256(seed)`。爆點亂數取自：
+
+```text
+U = first52bits(SHA-256(seed + ":crash")) / 2^52
+```
+
+鎖定下注後，系統依角色、雙注組合、投注比例及策略倍率算出該局的基礎曲線值 `b`，再把已承諾的 `U` 映射成爆點：
+
+```text
+Crash = min(100, max(1, b / (1 - U)))
+P(Crash > m) = b / m       （1 ≤ m < 100）
+```
+
+因此不含角色能力時，在 `m` 倍成功 Cash Out 的期望派彩為：
+
+```text
+P(Crash > m) × m = (b / m) × m = b
+```
+
+角色能力都是正向加成，所以能力越強，`b` 就必須越低，才能把「爆點曲線 + 角色能力 + 雙注組合」的總期望維持在 96%。校準式為：
+
+```text
+ExpectedReturn(b) = C + bK
+b = (0.96 × TotalStake - C) / K
+```
+
+`C` 是爆掉仍可能返還的期望值（例如南瓜），`K` 是各注成功派彩與雙注組合加成的總係數。程式會把 `b` 限制在 1%～96%。手動 Cash Out 若偏離面板設定的策略倍率，該操作方式的實際 RTP 也會改變。
+
+追擊條與獵人距離是純動畫演出，不讀取爆點，不能用來預測本局結果。
+
+## 本機啟動
+
+需求：Node.js 22.13 或更新版本。
 
 ```bash
 npm install
 npm run dev
-npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+驗證：
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm test
+npm run lint
 ```
-
-## Optional Dispatch-Owned ChatGPT Sign-In
-
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
-
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
-
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
