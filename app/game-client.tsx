@@ -110,6 +110,16 @@ function money(value: number) {
   return Math.max(0, value).toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
+function historyTier(value: number) {
+  if (value >= 50) return "legendary";
+  if (value >= 20) return "epic";
+  if (value >= 10) return "mega";
+  if (value >= 5) return "hot";
+  if (value >= 2) return "warm";
+  if (value < 1.2) return "cold";
+  return "";
+}
+
 async function digestHex(value: string) {
   const bytes = new TextEncoder().encode(value);
   const hash = await crypto.subtle.digest("SHA-256", bytes);
@@ -707,7 +717,7 @@ export default function GameClient() {
           } as CSSProperties}
         >
           <div className="history-strip" aria-label="最近爆點">
-            {history.slice(0, 6).map((value, index) => <span className={value >= 10 ? "mega" : value >= 5 ? "hot" : value < 1.2 ? "cold" : ""} key={index}>{value.toFixed(2)}×</span>)}
+            {history.slice(0, 6).map((value, index) => <span className={historyTier(value)} key={index}>{value.toFixed(2)}×</span>)}
             <b>•••</b>
           </div>
           <button className="menu-button" aria-label="遊戲選單" onClick={() => setRulesOpen(true)}><i /><i /><i /></button>

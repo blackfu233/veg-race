@@ -92,6 +92,17 @@ test("keeps the chase meter cosmetic and independent from the hidden crash point
   assert.match(source, /title="追擊距離為動畫演出，不代表爆點"/);
 });
 
+test("gives larger history multipliers progressively stronger visual tiers", async () => {
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  for (const tier of ["cold", "warm", "hot", "mega", "epic", "legendary"]) {
+    assert.match(styles, new RegExp(`\\.history-strip \\.${tier}`));
+  }
+  assert.match(source, /if \(value >= 50\) return "legendary"/);
+  assert.match(source, /if \(value >= 20\) return "epic"/);
+  assert.match(styles, /Arial Rounded MT Bold/);
+});
+
 test("keeps every role effect purely positive", () => {
   const multipliers = [1.2, 1.5, 2, 3, 5, 10, 50];
   for (const roleId of roleIds) {
