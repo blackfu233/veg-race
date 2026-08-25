@@ -103,6 +103,16 @@ test("gives larger history multipliers progressively stronger visual tiers", asy
   assert.match(styles, /Arial Rounded MT Bold/);
 });
 
+test("emphasizes successful cash-out winnings at round settlement", async () => {
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /CASH OUT SUCCESS/);
+  assert.match(source, /`WIN \+\$\{money\(ticket\.payout\)\}`/);
+  assert.match(styles, /\.result-ribbon \.result-cashed \{[^}]*min-width:148px;[^}]*height:58px/);
+  assert.match(styles, /@keyframes winResultPop/);
+  assert.match(styles, /@keyframes winAmountPulse/);
+});
+
 test("keeps every role effect purely positive", () => {
   const multipliers = [1.2, 1.5, 2, 3, 5, 10, 50];
   for (const roleId of roleIds) {

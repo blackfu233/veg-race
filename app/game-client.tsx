@@ -811,12 +811,12 @@ export default function GameClient() {
             </div>
           )}
           {phase === "crashed" && placedCount > 0 && (
-            <div className="result-ribbon" role="status" aria-label="本局下注結果">
+            <div className={`result-ribbon ${tickets.some((ticket) => ticket.enabled && ticket.placed && ticket.status === "cashed") ? "has-win" : ""}`} role="status" aria-label="本局下注結果">
               {tickets.map((ticket, index) => ticket.enabled && ticket.placed && (
                 <span className={`result-${ticket.status}`} key={index}>
                   <b>{index + 1}</b>
-                  <i>{ticket.status === "cashed" ? "WIN" : ticket.status === "refunded" ? "REFUND" : ticket.payout > 0 ? "PARTIAL" : "CAUGHT"}</i>
-                  <strong>{ticket.status === "cashed" || ticket.status === "refunded" || ticket.payout > 0 ? `+${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`}</strong>
+                  <i>{ticket.status === "cashed" ? "CASH OUT SUCCESS" : ticket.status === "refunded" ? "REFUND" : ticket.payout > 0 ? "PARTIAL" : "CAUGHT"}</i>
+                  <strong>{ticket.status === "cashed" ? `WIN +${money(ticket.payout)}` : ticket.status === "refunded" || ticket.payout > 0 ? `+${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`}</strong>
                 </span>
               ))}
             </div>
