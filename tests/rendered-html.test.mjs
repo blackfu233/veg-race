@@ -84,6 +84,27 @@ test("keeps crash and character rolls deterministic for each committed round", a
   assert.match(source, /digestHex\(seed \+ ":ticket:1:target"\)/);
 });
 
+test("offers a menu showcase switch that only forces eligible role abilities", async () => {
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(source, /特效展示模式/);
+  assert.match(source, /條件達成時，角色能力必定觸發/);
+  assert.match(source, /showcaseModeRef\.current \? 0 : roundSpecRef\.current\?\.abilityRolls/);
+  assert.match(source, /showcaseModeRef\.current \? 0 : roundSpecRef\.current\?\.comboRoll/);
+  assert.match(source, /僅供查看特效，不代表正常 RTP/);
+  assert.match(styles, /\.showcase-badge/);
+  assert.match(styles, /\.showcase-control\.on/);
+  assert.equal(settleSuccessfulCashout("potato", 100, 1.5, 0).outcome, "bonus");
+  assert.equal(settleSuccessfulCashout("potato", 100, 2, 0).outcome, "neutral", "showcase mode must keep the potato threshold");
+  assert.equal(settleSuccessfulCashout("chili", 100, 5, 0).outcome, "bonus");
+  assert.equal(settleSuccessfulCashout("chili", 100, 4.99, 0).outcome, "neutral", "showcase mode must keep the chili threshold");
+  assert.equal(settleSuccessfulCashout("corn", 100, 2, 0).outcome, "bonus");
+  assert.equal(settleSuccessfulCashout("mushroom", 100, 2, 0).outcome, "bonus");
+  assert.equal(settleCrashRole("pumpkin", 100, 0).payout, 100);
+  assert.ok(pairProfitFactor("scallion", 0).factor > 1);
+  assert.ok(pairProfitFactor("peanut", 0).factor > 1);
+});
+
 test("keeps the chase meter cosmetic and independent from the hidden crash point", async () => {
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /intentionally non-predictive show meter/);

@@ -198,6 +198,7 @@ export default function GameClient() {
   const [rulesOpen, setRulesOpen] = useState(false);
   const [fairOpen, setFairOpen] = useState(false);
   const [muted, setMuted] = useState(false);
+  const [showcaseMode, setShowcaseMode] = useState(false);
   const [toast, setToast] = useState<{ title: string; body: string; tone: "good" | "bad" | "gold" } | null>(null);
   const [skillEffects, setSkillEffects] = useState<SkillFx[]>([]);
 
@@ -205,6 +206,7 @@ export default function GameClient() {
   const balanceRef = useRef(balance);
   const phaseRef = useRef<Phase>(phase);
   const roundSpecRef = useRef<RoundSpec | null>(roundSpec);
+  const showcaseModeRef = useRef(showcaseMode);
   const betDeadlineRef = useRef(0);
   const runStartRef = useRef(0);
   const bonusFlagsRef = useRef({ peanut: false, scallion: false });
@@ -218,6 +220,7 @@ export default function GameClient() {
   useEffect(() => { balanceRef.current = balance; }, [balance]);
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { roundSpecRef.current = roundSpec; }, [roundSpec]);
+  useEffect(() => { showcaseModeRef.current = showcaseMode; }, [showcaseMode]);
 
   useEffect(() => {
     if (!rulesOpen && !fairOpen) return;
@@ -258,6 +261,20 @@ export default function GameClient() {
   useEffect(() => {
     try { localStorage.setItem("veggie-dash-muted", muted ? "1" : "0"); } catch { /* Preference persistence is optional. */ }
   }, [muted]);
+
+  useEffect(() => {
+    let savedShowcaseMode = false;
+    try { savedShowcaseMode = localStorage.getItem("veggie-dash-showcase-mode") === "1"; } catch { /* Use normal odds when storage is unavailable. */ }
+    const timer = setTimeout(() => {
+      showcaseModeRef.current = savedShowcaseMode;
+      setShowcaseMode(savedShowcaseMode);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.setItem("veggie-dash-showcase-mode", showcaseMode ? "1" : "0"); } catch { /* The showcase switch still works for this session. */ }
+  }, [showcaseMode]);
 
   const showToast = useCallback((title: string, body: string, tone: "good" | "bad" | "gold" = "good") => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -303,6 +320,19 @@ export default function GameClient() {
   const haptic = useCallback((pattern: number | number[]) => {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(pattern);
   }, []);
+
+  const toggleShowcaseMode = useCallback(() => {
+    const enabled = !showcaseModeRef.current;
+    showcaseModeRef.current = enabled;
+    setShowcaseMode(enabled);
+    showToast(
+      enabled ? "特效展示模式已開啟" : "已恢復正常機率",
+      enabled ? "條件達成時，角色能力必定觸發" : "角色能力依原始機率判定",
+      enabled ? "gold" : "good",
+    );
+    tone(enabled ? 920 : 540, .12);
+    haptic(enabled ? [18, 24, 18] : 14);
+  }, [haptic, showToast, tone]);
 
   useEffect(() => () => {
     if (audioContextRef.current) void audioContextRef.current.close().catch(() => undefined);
@@ -353,7 +383,8 @@ export default function GameClient() {
       return { tickets: next, adjustment: 0 };
     }
     bonusFlagsRef.current.peanut = true;
-    const pairResult = pairProfitFactor("peanut", roundSpecRef.current?.comboRoll ?? .5);
+    const pairRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.comboRoll ?? .5;
+    const pairResult = pairProfitFactor("peanut", pairRoll);
     let totalAdjustment = 0;
     const adjusted = next.map((ticket) => {
       if (!ticket.enabled || !ticket.placed || ticket.status !== "cashed") return ticket;
@@ -370,7 +401,7 @@ export default function GameClient() {
     const currentTickets = ticketsRef.current;
     const current = currentTickets[index];
     if (!current || current.status !== "running" || current.remaining <= 0) return;
-    const roleRoll = roundSpecRef.current?.abilityRolls[index]?.bonus ?? .5;
+    const roleRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[index]?.bonus ?? .5;
     if (current.roleId === "okra" && !forceFull) {
       showToast("秋葵正在憋住", "成熟時會自己彈開並 Cash Out", "bad");
       tone(210);
@@ -439,7 +470,7 @@ export default function GameClient() {
     const settled = ticketsRef.current.map((ticket, ticketIndex) => {
       if (!ticket.enabled || !ticket.placed || ticket.status !== "running" || ticket.remaining <= 0) return ticket;
       const refundableStake = ticket.amount * ticket.remaining;
-      const roleRoll = roundSpecRef.current?.abilityRolls[ticketIndex]?.bonus ?? .5;
+      const roleRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[ticketIndex]?.bonus ?? .5;
       const crashSettlement = settleCrashRole(ticket.roleId, refundableStake, roleRoll);
       if (crashSettlement.payout > 0) {
         refundCredit += crashSettlement.payout;
@@ -464,7 +495,8 @@ export default function GameClient() {
         const winnerIndex = settled.indexOf(winners[0]);
         scallionWinnerIndex = winnerIndex;
         const profit = Math.max(0, winners[0].payout - winners[0].amount);
-        const pairResult = pairProfitFactor("scallion", roundSpecRef.current?.comboRoll ?? .5);
+        const pairRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.comboRoll ?? .5;
+        const pairResult = pairProfitFactor("scallion", pairRoll);
         scallionAdjustment = profit * (pairResult.factor - 1);
         if (scallionAdjustment !== 0) {
           settled[winnerIndex] = { ...settled[winnerIndex], payout: settled[winnerIndex].payout + scallionAdjustment, note: pairResult.note };
@@ -765,7 +797,7 @@ export default function GameClient() {
   return (
     <main className="game-shell">
       <section
-        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
+        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
         aria-label="蔬菜跑跑 Crash Game Demo"
       >
         <section
@@ -780,6 +812,7 @@ export default function GameClient() {
             <b>•••</b>
           </div>
           <button className="menu-button" aria-label="遊戲選單" onClick={() => setRulesOpen(true)}><i /><i /><i /></button>
+          {showcaseMode && <span className="showcase-badge" aria-label="特效展示模式已開啟">FX 100%</span>}
 
           <div className="scene-motion" aria-hidden="true">
             <span className="horizon-glow" />
@@ -1021,6 +1054,15 @@ export default function GameClient() {
                 ))}
               </div>
               <div className="menu-actions">
+                <button
+                  className={`showcase-control ${showcaseMode ? "on" : ""}`}
+                  aria-pressed={showcaseMode}
+                  onClick={toggleShowcaseMode}
+                >
+                  <span><strong>特效展示模式</strong><small>條件達成時，角色能力必定觸發</small></span>
+                  <b aria-hidden="true"><i /></b>
+                </button>
+                {showcaseMode && <p className="showcase-warning">展示模式會覆寫角色機率，僅供查看特效，不代表正常 RTP。</p>}
                 <button onClick={() => { setRulesOpen(false); setFairOpen(true); }}><span>公平性驗證</span><b>查看本局資料 ›</b></button>
                 <button onClick={() => setMuted((value) => !value)}><span>遊戲音效</span><b>{muted ? "關閉" : "開啟"}</b></button>
               </div>
