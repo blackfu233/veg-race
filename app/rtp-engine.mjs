@@ -5,10 +5,10 @@ export const ROLE_MATH = Object.freeze({
   potato: { triggerChance: 0.28, highPayoutFactor: 2, maxMultiplier: 2 },
   chili: { triggerChance: 0.34, highPayoutFactor: 2, minMultiplier: 5 },
   pumpkin: { refundChance: 0.05 },
-  tomato: { payoutFactor: 1.08 },
-  okra: { payoutFactor: 1.15 },
-  peapod: { payoutFactor: 1.0667 },
-  corn: { triggerChance: 0.5, highPayoutFactor: 2 },
+  tomato: { profitBonus: 0.12 },
+  okra: { profitBonus: 0.25 },
+  peapod: { profitBonus: 0.1 },
+  corn: { triggerChance: 0.5, profitBonus: 0.5 },
   scallion: { triggerChance: 0.5, highProfitFactor: 1.4, expectedProfitBonus: 0.2 },
   mushroom: { triggerChance: 0.045, highPayoutFactor: 8 },
   peanut: { triggerChance: 0.5, highProfitFactor: 1.24, expectedProfitBonus: 0.12 },
@@ -26,6 +26,16 @@ function result(payout, note = "", outcome = "neutral") {
   return { payout: Math.max(0, payout), note, outcome };
 }
 
+function profitBonusPayout(stake, multiplier, bonus) {
+  const basePayout = stake * multiplier;
+  const profit = Math.max(0, basePayout - stake);
+  return basePayout + profit * bonus;
+}
+
+function profitBonusFactor(multiplier, bonus) {
+  return profitBonusPayout(1, multiplier, bonus) / multiplier;
+}
+
 function normalizeWagers(wagers) {
   return wagers
     .filter((wager) => wager && Number.isFinite(wager.stake) && wager.stake > 0)
@@ -40,11 +50,11 @@ function expectedSuccessFactor(roleId, multiplier) {
   if (roleId === "chili" && multiplier >= ROLE_MATH.chili.minMultiplier) {
     return 1 + ROLE_MATH.chili.triggerChance * (ROLE_MATH.chili.highPayoutFactor - 1);
   }
-  if (roleId === "tomato") return ROLE_MATH.tomato.payoutFactor;
-  if (roleId === "okra") return ROLE_MATH.okra.payoutFactor;
-  if (roleId === "peapod") return ROLE_MATH.peapod.payoutFactor;
+  if (roleId === "tomato") return profitBonusFactor(multiplier, ROLE_MATH.tomato.profitBonus);
+  if (roleId === "okra") return profitBonusFactor(multiplier, ROLE_MATH.okra.profitBonus);
+  if (roleId === "peapod") return profitBonusFactor(multiplier, ROLE_MATH.peapod.profitBonus);
   if (roleId === "corn") {
-    return 1 + ROLE_MATH.corn.triggerChance * (ROLE_MATH.corn.highPayoutFactor - 1);
+    return profitBonusFactor(multiplier, ROLE_MATH.corn.triggerChance * ROLE_MATH.corn.profitBonus);
   }
   if (roleId === "mushroom") {
     return 1 + ROLE_MATH.mushroom.triggerChance * (ROLE_MATH.mushroom.highPayoutFactor - 1);
@@ -75,11 +85,11 @@ export function settleSuccessfulCashout(roleId, stake, multiplier, roll) {
   if (roleId === "chili" && safeMultiplier >= ROLE_MATH.chili.minMultiplier && safeRoll < ROLE_MATH.chili.triggerChance) {
     return result(basePayout * ROLE_MATH.chili.highPayoutFactor, "辣椒：高倍整筆派彩雙倍！", "bonus");
   }
-  if (roleId === "tomato") return result(basePayout * ROLE_MATH.tomato.payoutFactor, "番茄：穩定派彩 +8%", "bonus");
-  if (roleId === "okra") return result(basePayout * ROLE_MATH.okra.payoutFactor, "秋葵：自動彈開派彩 +15%", "bonus");
-  if (roleId === "peapod") return result(basePayout * ROLE_MATH.peapod.payoutFactor, "豌豆莢：分批派彩 +6.67%", "bonus");
+  if (roleId === "tomato") return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.tomato.profitBonus), "番茄：成功利潤 +12%", "bonus");
+  if (roleId === "okra") return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.okra.profitBonus), "秋葵：成熟利潤 +25%", "bonus");
+  if (roleId === "peapod") return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.peapod.profitBonus), "豌豆莢：分批利潤 +10%", "bonus");
   if (roleId === "corn" && safeRoll < ROLE_MATH.corn.triggerChance) {
-    return result(basePayout * ROLE_MATH.corn.highPayoutFactor, "玉米：幸運整筆派彩雙倍！", "bonus");
+    return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.corn.profitBonus), "玉米：金色收成，利潤 +50%！", "bonus");
   }
   if (roleId === "mushroom" && safeRoll < ROLE_MATH.mushroom.triggerChance) {
     return result(basePayout * ROLE_MATH.mushroom.highPayoutFactor, "蘑菇：JACKPOT 整筆派彩 ×8！", "bonus");

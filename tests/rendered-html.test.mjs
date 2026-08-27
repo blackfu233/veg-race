@@ -56,6 +56,7 @@ test("ships the complete runner and pursuer art set", async () => {
   const assets = [
     "../public/farm-road.webp",
     "../public/pursuer-fox-run.webp",
+    "../public/effects/corn-gold-kernels.png",
     "../public/favicon.png",
     "../public/apple-touch-icon.png",
     "../public/og.png",
@@ -99,6 +100,7 @@ test("offers a menu showcase switch that only forces eligible role abilities", a
   assert.equal(settleSuccessfulCashout("chili", 100, 5, 0).outcome, "bonus");
   assert.equal(settleSuccessfulCashout("chili", 100, 4.99, 0).outcome, "neutral", "showcase mode must keep the chili threshold");
   assert.equal(settleSuccessfulCashout("corn", 100, 2, 0).outcome, "bonus");
+  assert.equal(settleSuccessfulCashout("corn", 100, 2, 0).payout, 250, "corn should add 50% of profit, not double the whole payout");
   assert.equal(settleSuccessfulCashout("mushroom", 100, 2, 0).outcome, "bonus");
   assert.equal(settleCrashRole("pumpkin", 100, 0).payout, 100);
   assert.ok(pairProfitFactor("scallion", 0).factor > 1);
@@ -226,6 +228,7 @@ test("stronger abilities produce lower base VI curves without negative settlemen
   const pairBaseRtp = calibrateRoundBaseRtp(wagers);
   const cornBaseRtp = calibrateRoundBaseRtp([{ roleId: "corn", stake: 1, target: 3 }]);
   assert.ok(pairBaseRtp < TARGET_RTP);
-  assert.ok(cornBaseRtp < pairBaseRtp, "corn's frequent double payout should use the more volatile base curve");
+  assert.ok(cornBaseRtp > 0.8, "corn's profit-only bonus should avoid the old 64% extreme base curve");
+  assert.ok(cornBaseRtp < pairBaseRtp, "corn's frequent gold-side bonus should still use a more volatile base curve");
   assert.ok(Math.abs(expectedRoundReturn(wagers, pairBaseRtp) / 5 - TARGET_RTP) < 1e-9);
 });

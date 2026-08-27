@@ -72,10 +72,10 @@ const roles: Role[] = [
   { id: "potato", name: "馬鈴薯", short: "早收拚雙倍", detail: "2× 前成功收回，有機會整筆雙倍。", accent: "#f0b55b" },
   { id: "chili", name: "辣椒", short: "高倍拚雙倍", detail: "5× 後成功收回，有機會整筆雙倍。", accent: "#ff5a4f" },
   { id: "pumpkin", name: "南瓜", short: "爆掉有機會返本", detail: "被抓到時，有機會拿回全部本金。", accent: "#ff9d3d" },
-  { id: "tomato", name: "番茄", short: "成功固定加成", detail: "每次成功收回，都會增加額外利潤。", accent: "#ff6358" },
-  { id: "okra", name: "秋葵", short: "自己決定退出", detail: "不能手動，會在 2×～5× 自動 Cash Out。", accent: "#79c94f" },
-  { id: "peapod", name: "豌豆莢", short: "一注分兩次拿", detail: "先收一半，另一顆豌豆繼續跑。", accent: "#70d858" },
-  { id: "corn", name: "雙色玉米", short: "成功再拚雙倍", detail: "成功收回後，有一半機會整筆雙倍。", accent: "#ffd447" },
+  { id: "tomato", name: "番茄", short: "成功利潤 +12%", detail: "每次成功收回，利潤固定增加 12%。", accent: "#ff6358" },
+  { id: "okra", name: "秋葵", short: "隨機自動收成", detail: "會在 2×～5× 自動收回，成功利潤 +25%。", accent: "#79c94f" },
+  { id: "peapod", name: "豌豆莢", short: "一注分兩顆收", detail: "先收一半，另一顆繼續跑；利潤 +10%。", accent: "#70d858" },
+  { id: "corn", name: "雙色玉米", short: "金色面加利潤", detail: "成功收回後，50% 機率利潤 +50%。", accent: "#ffd447" },
   { id: "scallion", name: "雙葉青蔥", short: "一敗一勝可救援", detail: "雙注一勝一敗時，有機會強化成功注。", accent: "#4fbd70" },
   { id: "mushroom", name: "蘑菇", short: "極低機率中 8 倍", detail: "成功收回時，極低機率整筆變成 8 倍。", accent: "#8a5abb" },
   { id: "peanut", name: "花生", short: "雙注成功一起加成", detail: "兩注都成功時，有機會讓兩注一起加成。", accent: "#d9a552" },
@@ -178,7 +178,12 @@ function SkillEffect({ effect, x }: { effect: SkillFx; x: number }) {
       role="status"
       aria-label={effect.label}
     >
-      <span className="fx-shape"><i /><i /><i /><i /><i /><i /><i /><i /></span>
+      <span className="fx-shape">
+        <Image className="fx-role-art fx-role-main" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
+        <Image className="fx-role-art fx-role-copy" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
+        {effect.roleId === "corn" && <Image className="fx-corn-kernels" src="/effects/corn-gold-kernels.png?v=1" width={180} height={120} alt="" aria-hidden="true" />}
+        <span className="fx-particles"><i /><i /><i /><i /><i /><i /><i /><i /></span>
+      </span>
       <strong>{effect.label}</strong>
     </div>
   );
@@ -289,7 +294,7 @@ export default function GameClient() {
     const timer = setTimeout(() => {
       setSkillEffects((current) => current.filter((effect) => effect.id !== id));
       skillFxTimersRef.current = skillFxTimersRef.current.filter((currentTimer) => currentTimer !== timer);
-    }, 1450);
+    }, 1650);
     skillFxTimersRef.current.push(timer);
   }, []);
 
@@ -425,7 +430,7 @@ export default function GameClient() {
       const labels: Partial<Record<RoleId, string>> = {
         potato: "早收雙倍！",
         chili: "高倍爆發！",
-        corn: "金色面雙倍！",
+        corn: "金色收成 +50% 利潤！",
         mushroom: "八點全亮！",
       };
       triggerSkillFx(current.roleId, index, labels[current.roleId] ?? "角色能力觸發！");
