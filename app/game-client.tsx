@@ -165,7 +165,7 @@ function Sprite({ roleId, className = "" }: { roleId: RoleId; className?: string
   const role = roleById[roleId];
   return (
     <div className={`veg-sprite ${className}`}>
-      <Image src={`/role-icons/${roleId}.webp?v=3`} width={128} height={128} sizes="(max-width: 440px) 42px, 48px" alt={role.name} draggable={false} />
+      <Image src={`/role-icons/${roleId}.webp?v=5`} width={128} height={128} sizes="(max-width: 440px) 42px, 48px" alt={role.name} draggable={false} />
     </div>
   );
 }
