@@ -7,12 +7,12 @@ export type RunnerRoleId =
   | "chili"
   | "pumpkin"
   | "tomato"
-  | "eggplant"
-  | "cauliflower"
-  | "corn"
   | "okra"
+  | "peapod"
+  | "corn"
+  | "scallion"
   | "mushroom"
-  | "peas";
+  | "peanut";
 
 const SOURCE_FRAME_SIZE = 384;
 const DRAW_SIZE = 192;

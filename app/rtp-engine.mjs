@@ -6,12 +6,12 @@ export const ROLE_MATH = Object.freeze({
   chili: { triggerChance: 0.34, highPayoutFactor: 2, minMultiplier: 5 },
   pumpkin: { refundChance: 0.05 },
   tomato: { payoutFactor: 1.08 },
-  eggplant: { payoutFactor: 1.15 },
-  cauliflower: { payoutFactor: 1.0667 },
+  okra: { payoutFactor: 1.15 },
+  peapod: { payoutFactor: 1.0667 },
   corn: { triggerChance: 0.5, highPayoutFactor: 2 },
-  okra: { triggerChance: 0.5, highProfitFactor: 1.4, expectedProfitBonus: 0.2 },
+  scallion: { triggerChance: 0.5, highProfitFactor: 1.4, expectedProfitBonus: 0.2 },
   mushroom: { triggerChance: 0.045, highPayoutFactor: 8 },
-  peas: { triggerChance: 0.5, highProfitFactor: 1.24, expectedProfitBonus: 0.12 },
+  peanut: { triggerChance: 0.5, highProfitFactor: 1.24, expectedProfitBonus: 0.12 },
 });
 
 function clampUnit(value) {
@@ -41,8 +41,8 @@ function expectedSuccessFactor(roleId, multiplier) {
     return 1 + ROLE_MATH.chili.triggerChance * (ROLE_MATH.chili.highPayoutFactor - 1);
   }
   if (roleId === "tomato") return ROLE_MATH.tomato.payoutFactor;
-  if (roleId === "eggplant") return ROLE_MATH.eggplant.payoutFactor;
-  if (roleId === "cauliflower") return ROLE_MATH.cauliflower.payoutFactor;
+  if (roleId === "okra") return ROLE_MATH.okra.payoutFactor;
+  if (roleId === "peapod") return ROLE_MATH.peapod.payoutFactor;
   if (roleId === "corn") {
     return 1 + ROLE_MATH.corn.triggerChance * (ROLE_MATH.corn.highPayoutFactor - 1);
   }
@@ -76,8 +76,8 @@ export function settleSuccessfulCashout(roleId, stake, multiplier, roll) {
     return result(basePayout * ROLE_MATH.chili.highPayoutFactor, "辣椒：高倍整筆派彩雙倍！", "bonus");
   }
   if (roleId === "tomato") return result(basePayout * ROLE_MATH.tomato.payoutFactor, "番茄：穩定派彩 +8%", "bonus");
-  if (roleId === "eggplant") return result(basePayout * ROLE_MATH.eggplant.payoutFactor, "茄子：隨機兌現派彩 +15%", "bonus");
-  if (roleId === "cauliflower") return result(basePayout * ROLE_MATH.cauliflower.payoutFactor, "花椰菜：分批派彩 +6.67%", "bonus");
+  if (roleId === "okra") return result(basePayout * ROLE_MATH.okra.payoutFactor, "秋葵：自動彈開派彩 +15%", "bonus");
+  if (roleId === "peapod") return result(basePayout * ROLE_MATH.peapod.payoutFactor, "豌豆莢：分批派彩 +6.67%", "bonus");
   if (roleId === "corn" && safeRoll < ROLE_MATH.corn.triggerChance) {
     return result(basePayout * ROLE_MATH.corn.highPayoutFactor, "玉米：幸運整筆派彩雙倍！", "bonus");
   }
@@ -98,13 +98,13 @@ export function settleCrashRole(roleId, remainingStake, roll) {
 
 export function pairProfitFactor(kind, roll) {
   const safeRoll = clampUnit(roll);
-  const config = kind === "okra" ? ROLE_MATH.okra : ROLE_MATH.peas;
+  const config = kind === "scallion" ? ROLE_MATH.scallion : ROLE_MATH.peanut;
   const hit = safeRoll < config.triggerChance;
   return {
     factor: hit ? config.highProfitFactor : 1,
     outcome: hit ? "bonus" : "neutral",
     note: hit
-      ? kind === "okra" ? "秋葵：成功注利潤 +40%！" : "雙子豌豆：兩注利潤 +24%！"
+      ? kind === "scallion" ? "雙葉青蔥：成功注利潤 +40%！" : "花生：兩注利潤 +24%！"
       : "",
   };
 }
@@ -133,20 +133,20 @@ function roundReturnParts(wagers) {
     baseCoefficient += (success - crash) / wager.target;
   }
 
-  if (active.length === 2 && active.some((wager) => wager.roleId === "peas")) {
+  if (active.length === 2 && active.some((wager) => wager.roleId === "peanut")) {
     const bothWinTarget = Math.max(active[0].target, active[1].target);
     const expectedProfit = active.reduce((sum, wager) => (
       sum + Math.max(0, expectedSuccessfulPayout(wager.roleId, wager.stake, wager.target) - wager.stake)
     ), 0);
-    baseCoefficient += ROLE_MATH.peas.expectedProfitBonus * expectedProfit / bothWinTarget;
+    baseCoefficient += ROLE_MATH.peanut.expectedProfitBonus * expectedProfit / bothWinTarget;
   }
 
-  if (active.length === 2 && active.some((wager) => wager.roleId === "okra")) {
+  if (active.length === 2 && active.some((wager) => wager.roleId === "scallion")) {
     const ordered = [...active].sort((first, second) => first.target - second.target);
     if (ordered[0].target < ordered[1].target) {
       const winnerProfit = Math.max(0, expectedSuccessfulPayout(ordered[0].roleId, ordered[0].stake, ordered[0].target) - ordered[0].stake);
       const oneWinProbabilityCoefficient = 1 / ordered[0].target - 1 / ordered[1].target;
-      baseCoefficient += ROLE_MATH.okra.expectedProfitBonus * winnerProfit * oneWinProbabilityCoefficient;
+      baseCoefficient += ROLE_MATH.scallion.expectedProfitBonus * winnerProfit * oneWinProbabilityCoefficient;
     }
   }
 
