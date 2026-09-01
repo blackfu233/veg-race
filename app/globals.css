@@ -108,11 +108,13 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .fx-pumpkin .fx-particles i:nth-child(1) { --seed-x:-42px; --seed-y:-28px; rotate:-22deg; } .fx-pumpkin .fx-particles i:nth-child(2) { --seed-x:41px; --seed-y:-33px; rotate:24deg; }
 .fx-pumpkin .fx-particles i:nth-child(n+3) { display:none; }
 
-.fx-tomato .fx-role-main { width:66px; height:66px; left:23px; top:12px; animation:fxTomatoPop .72s cubic-bezier(.16,1.1,.28,1) both; }
-.fx-tomato .fx-role-copy { display:block; width:39px; height:39px; left:1px; top:9px; animation:fxFruitOrbit .78s ease-out both; }
-.fx-tomato .fx-particles i { display:block; width:14px; height:14px; border-radius:50%; background:radial-gradient(circle at 34% 28%,#ffb083 0 13%,#ed4338 48%,#a91d2a 100%); box-shadow:0 0 7px rgba(239,65,56,.45); animation:fxFruitSpark .7s ease-out both; }
-.fx-tomato .fx-particles i:nth-child(1) { left:10px; top:62px; --fruit-x:-12px; --fruit-y:14px; } .fx-tomato .fx-particles i:nth-child(2) { right:9px; top:18px; --fruit-x:12px; --fruit-y:-10px; }
-.fx-tomato .fx-particles i:nth-child(n+3) { display:none; }
+.fx-tomato .fx-role-main { width:70px; height:70px; left:21px; top:8px; transform-origin:50% 44%; animation:fxTomatoTriple .86s cubic-bezier(.16,.92,.24,1) both; }
+.fx-tomato .fx-role-copy { display:block; width:46px; height:46px; left:2px; top:28px; opacity:.64; filter:saturate(.9) brightness(1.18); animation:fxTomatoAfterimage .8s ease-out both; }
+.fx-tomato .fx-shape::after { content:"×3"; position:absolute; z-index:5; right:-1px; top:1px; color:#fff6a6; font-size:25px; font-weight:950; text-shadow:0 2px 0 #bc402c,0 0 10px #ffc83d; animation:fxTripleStamp .76s .12s cubic-bezier(.16,1.1,.25,1) both; }
+.fx-tomato .fx-particles i { display:block; left:52px; top:44px; width:9px; height:15px; border-radius:68% 32% 62% 38%; background:linear-gradient(135deg,#fff7a8,#ffc337 55%,#ee7e25); box-shadow:0 0 8px #ffc640; animation:fxTomatoCoinTrail .78s ease-out both; }
+.fx-tomato .fx-particles i:nth-child(1) { --fruit-x:-49px; --fruit-y:-28px; } .fx-tomato .fx-particles i:nth-child(2) { --fruit-x:-24px; --fruit-y:-49px; }
+.fx-tomato .fx-particles i:nth-child(3) { --fruit-x:8px; --fruit-y:-56px; } .fx-tomato .fx-particles i:nth-child(4) { --fruit-x:41px; --fruit-y:-39px; }
+.fx-tomato .fx-particles i:nth-child(5) { --fruit-x:52px; --fruit-y:-5px; } .fx-tomato .fx-particles i:nth-child(n+6) { display:none; }
 
 .fx-okra .fx-role-main { animation:fxOkraSnap .78s cubic-bezier(.18,.9,.25,1) both; }
 .fx-okra .fx-particles i { display:block; left:51px; top:49px; width:11px; height:11px; border:2px solid #56872f; border-radius:50%; background:radial-gradient(circle at 34% 28%,#f0f7a1,#a8ce47 58%,#56872f); animation:okraSeedFly .75s ease-out both; }
@@ -209,7 +211,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .phase-crashed .bet-card.status-lost { border-color:#dc8d7d; background:linear-gradient(180deg,#fff9f2,#fff4e8); }
 .phase-crashed .bet-card.status-refunded { border-color:#e7b856; background:linear-gradient(180deg,#fffdf1,#fff5d5); }
 .bet-card.skill-triggered { animation:skillCardGlow .72s ease-out both; }
-.character-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); grid-template-rows:repeat(2,1fr); gap:5px; }
+.character-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(2,1fr); gap:5px; }
 .character-grid button { min-width:0; padding:2px; overflow:hidden; border:1px solid #e5c797; border-radius:6px; background:linear-gradient(#fffdf5,#fff7e8); box-shadow:inset 0 1px rgba(255,255,255,.9); transition:transform .12s,background .12s,border-color .12s,box-shadow .12s; }
 .character-grid button:not(:disabled):hover { border-color:#efb350; background:#fff3d2; }
 .character-grid button:not(:disabled):active { transform:scale(.92); }
@@ -276,6 +278,9 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .role-guide strong,.role-guide span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .role-guide strong { color:#6d543a; font-size:11px; }
 .role-guide span { margin-top:1px; color:#df8127; font-size:9px; font-weight:850; }
+.ability-sharing-note { margin-top:10px; padding:9px 11px; display:grid; gap:2px; border:1px solid #b7d7ae; border-radius:12px; color:#41633f; background:linear-gradient(135deg,#eff9e9,#fff9e8); }
+.ability-sharing-note strong { font-size:12px; }
+.ability-sharing-note span { font-size:10px; line-height:1.35; font-weight:720; }
 .demo-note { margin-top:11px; padding:10px; color:#966b32; background:#fff0c6; border-radius:11px; font-size:12px; }
 .menu-actions { margin-top:13px; display:grid; gap:7px; }
 .menu-actions button { width:100%; min-height:43px; padding:9px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #cddfbd; border-radius:12px; color:#5c4a36; background:#f1f8e9; font-weight:850; }
@@ -368,6 +373,10 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 @keyframes fxTomatoPop { from { opacity:0; transform:translateY(19px) scale(.25); } 64% { opacity:1; transform:translateY(-5px) scale(1.13); } to { opacity:1; transform:none; } }
 @keyframes fxFruitOrbit { from { opacity:0; transform:translate(40px,36px) scale(.18) rotate(0); } 62% { opacity:1; transform:translate(-4px,-4px) scale(1.08) rotate(-14deg); } to { opacity:1; transform:none; } }
 @keyframes fxFruitSpark { from { opacity:0; transform:translate(0,12px) scale(.2); } 55% { opacity:1; } to { opacity:0; transform:translate(var(--fruit-x),var(--fruit-y)) scale(1.15); } }
+@keyframes fxTomatoTriple { 0% { opacity:0; transform:translateY(22px) rotate(-70deg) scale(.28); } 48% { opacity:1; transform:translateY(-8px) rotate(420deg) scale(1.15); filter:brightness(1.38); } 76% { transform:translateY(-2px) rotate(690deg) scale(.96); } 100% { opacity:1; transform:rotate(720deg); filter:none; } }
+@keyframes fxTomatoAfterimage { 0% { opacity:0; transform:translate(52px,28px) scale(.3) rotate(-30deg); } 45% { opacity:.7; transform:translate(-8px,2px) scale(1.06) rotate(10deg); } 100% { opacity:0; transform:translate(-35px,-10px) scale(.76) rotate(24deg); } }
+@keyframes fxTripleStamp { from { opacity:0; transform:scale(.2) rotate(-18deg); } 62% { opacity:1; transform:scale(1.22) rotate(5deg); } to { opacity:1; transform:none; } }
+@keyframes fxTomatoCoinTrail { 0% { opacity:0; transform:translate(0,7px) scale(.25) rotate(0); } 42% { opacity:1; } 100% { opacity:0; transform:translate(var(--fruit-x),var(--fruit-y)) scale(1.1) rotate(240deg); } }
 @keyframes fxOkraSnap { from { opacity:0; transform:scaleY(.55) scaleX(1.15); } 45% { opacity:1; transform:scaleY(1.15) scaleX(.9); filter:brightness(1.3); } to { opacity:1; transform:none; filter:none; } }
 @keyframes fxPodOpen { from { opacity:0; transform:rotate(-15deg) scale(.55); } 54% { opacity:1; transform:rotate(7deg) scale(1.08); filter:brightness(1.25); } to { opacity:.92; transform:none; filter:none; } }
 @keyframes fxPeaTrail { from { opacity:.65; transform:translate(0,0) scale(.5); } to { opacity:0; transform:translate(45px,-36px) scale(1.1); } }

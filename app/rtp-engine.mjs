@@ -5,35 +5,38 @@ export const ROLE_MATH = Object.freeze({
   potato: { triggerChance: 0.28, highPayoutFactor: 2, maxMultiplier: 2 },
   chili: { triggerChance: 0.34, highPayoutFactor: 2, minMultiplier: 5 },
   pumpkin: { refundChance: 0.05 },
-  tomato: { profitBonus: 0.12 },
-  okra: { profitBonus: 0.25 },
-  peapod: { profitBonus: 0.1 },
-  corn: { triggerChance: 0.5, profitBonus: 0.5 },
-  scallion: { triggerChance: 0.5, highProfitFactor: 1.4, expectedProfitBonus: 0.2 },
+  tomato: { triggerChance: 0.12, highPayoutFactor: 3, minTarget: 2, maxTarget: 5 },
+  peapod: { firstCashoutPortion: 0.5 },
   mushroom: { triggerChance: 0.045, highPayoutFactor: 8 },
-  peanut: { triggerChance: 0.5, highProfitFactor: 1.24, expectedProfitBonus: 0.12 },
 });
 
+export const SHARED_ROLE_IDS = Object.freeze(["potato", "chili", "pumpkin", "mushroom"]);
+
 function clampUnit(value) {
-  return Math.min(1 - Number.EPSILON, Math.max(0, value));
+  return Math.min(1 - Number.EPSILON, Math.max(0, Number.isFinite(value) ? value : 0.5));
 }
 
 function safeTarget(value) {
   return Math.max(1.01, Math.min(100 - Number.EPSILON, Number.isFinite(value) ? value : 2));
 }
 
-function result(payout, note = "", outcome = "neutral") {
-  return { payout: Math.max(0, payout), note, outcome };
+function roleRoll(rolls, roleId) {
+  if (typeof rolls === "number") return clampUnit(rolls);
+  return clampUnit(rolls?.[roleId]);
 }
 
-function profitBonusPayout(stake, multiplier, bonus) {
-  const basePayout = stake * multiplier;
-  const profit = Math.max(0, basePayout - stake);
-  return basePayout + profit * bonus;
+function normalizedRoleIds(roleId, roundRoleIds) {
+  const source = Array.isArray(roundRoleIds) && roundRoleIds.length ? roundRoleIds : [roleId];
+  return [...new Set(source.filter((candidate) => Object.hasOwn(ROLE_MATH, candidate)))];
 }
 
-function profitBonusFactor(multiplier, bonus) {
-  return profitBonusPayout(1, multiplier, bonus) / multiplier;
+function result(payout, notes = [], triggeredRoleIds = []) {
+  return {
+    payout: Math.max(0, payout),
+    note: notes.join(" · "),
+    outcome: triggeredRoleIds.length ? "bonus" : "neutral",
+    triggeredRoleIds,
+  };
 }
 
 function normalizeWagers(wagers) {
@@ -43,23 +46,29 @@ function normalizeWagers(wagers) {
     .map((wager) => ({ roleId: wager.roleId, stake: wager.stake, target: safeTarget(wager.target) }));
 }
 
-function expectedSuccessFactor(roleId, multiplier) {
+function expectedFactorForAbility(roleId, multiplier) {
   if (roleId === "potato" && multiplier < ROLE_MATH.potato.maxMultiplier) {
     return 1 + ROLE_MATH.potato.triggerChance * (ROLE_MATH.potato.highPayoutFactor - 1);
   }
   if (roleId === "chili" && multiplier >= ROLE_MATH.chili.minMultiplier) {
     return 1 + ROLE_MATH.chili.triggerChance * (ROLE_MATH.chili.highPayoutFactor - 1);
   }
-  if (roleId === "tomato") return profitBonusFactor(multiplier, ROLE_MATH.tomato.profitBonus);
-  if (roleId === "okra") return profitBonusFactor(multiplier, ROLE_MATH.okra.profitBonus);
-  if (roleId === "peapod") return profitBonusFactor(multiplier, ROLE_MATH.peapod.profitBonus);
-  if (roleId === "corn") {
-    return profitBonusFactor(multiplier, ROLE_MATH.corn.triggerChance * ROLE_MATH.corn.profitBonus);
-  }
   if (roleId === "mushroom") {
     return 1 + ROLE_MATH.mushroom.triggerChance * (ROLE_MATH.mushroom.highPayoutFactor - 1);
   }
   return 1;
+}
+
+function expectedSuccessFactor(roleId, multiplier, roundRoleIds) {
+  const selected = normalizedRoleIds(roleId, roundRoleIds);
+  let factor = 1;
+  for (const sharedRoleId of SHARED_ROLE_IDS) {
+    if (selected.includes(sharedRoleId)) factor *= expectedFactorForAbility(sharedRoleId, multiplier);
+  }
+  if (roleId === "tomato") {
+    factor *= 1 + ROLE_MATH.tomato.triggerChance * (ROLE_MATH.tomato.highPayoutFactor - 1);
+  }
+  return factor;
 }
 
 export function crashPointFromUnit(unit, baseRtp = TARGET_RTP) {
@@ -73,91 +82,82 @@ export function survivalAt(multiplier, baseRtp = TARGET_RTP) {
   return Math.min(1, Math.max(0, baseRtp) / multiplier);
 }
 
-export function settleSuccessfulCashout(roleId, stake, multiplier, roll) {
+export function settleSuccessfulCashout(roleId, stake, multiplier, rolls, roundRoleIds = [roleId]) {
   const safeStake = Math.max(0, stake);
   const safeMultiplier = safeTarget(multiplier);
-  const safeRoll = clampUnit(roll);
-  const basePayout = safeStake * safeMultiplier;
+  const selected = normalizedRoleIds(roleId, roundRoleIds);
+  const notes = [];
+  const triggeredRoleIds = [];
+  let payout = safeStake * safeMultiplier;
 
-  if (roleId === "potato" && safeMultiplier < ROLE_MATH.potato.maxMultiplier && safeRoll < ROLE_MATH.potato.triggerChance) {
-    return result(basePayout * ROLE_MATH.potato.highPayoutFactor, "馬鈴薯：低倍整筆派彩雙倍！", "bonus");
+  if (
+    selected.includes("potato")
+    && safeMultiplier < ROLE_MATH.potato.maxMultiplier
+    && roleRoll(rolls, "potato") < ROLE_MATH.potato.triggerChance
+  ) {
+    payout *= ROLE_MATH.potato.highPayoutFactor;
+    notes.push("馬鈴薯支援：早收整筆 ×2");
+    triggeredRoleIds.push("potato");
   }
-  if (roleId === "chili" && safeMultiplier >= ROLE_MATH.chili.minMultiplier && safeRoll < ROLE_MATH.chili.triggerChance) {
-    return result(basePayout * ROLE_MATH.chili.highPayoutFactor, "辣椒：高倍整筆派彩雙倍！", "bonus");
+  if (
+    selected.includes("chili")
+    && safeMultiplier >= ROLE_MATH.chili.minMultiplier
+    && roleRoll(rolls, "chili") < ROLE_MATH.chili.triggerChance
+  ) {
+    payout *= ROLE_MATH.chili.highPayoutFactor;
+    notes.push("辣椒支援：高倍整筆 ×2");
+    triggeredRoleIds.push("chili");
   }
-  if (roleId === "tomato") return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.tomato.profitBonus), "番茄：成功利潤 +12%", "bonus");
-  if (roleId === "okra") return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.okra.profitBonus), "秋葵：成熟利潤 +25%", "bonus");
-  if (roleId === "peapod") return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.peapod.profitBonus), "豌豆莢：分批利潤 +10%", "bonus");
-  if (roleId === "corn" && safeRoll < ROLE_MATH.corn.triggerChance) {
-    return result(profitBonusPayout(safeStake, safeMultiplier, ROLE_MATH.corn.profitBonus), "玉米：金色收成，利潤 +50%！", "bonus");
+  if (
+    selected.includes("mushroom")
+    && roleRoll(rolls, "mushroom") < ROLE_MATH.mushroom.triggerChance
+  ) {
+    payout *= ROLE_MATH.mushroom.highPayoutFactor;
+    notes.push("蘑菇支援：JACKPOT ×8");
+    triggeredRoleIds.push("mushroom");
   }
-  if (roleId === "mushroom" && safeRoll < ROLE_MATH.mushroom.triggerChance) {
-    return result(basePayout * ROLE_MATH.mushroom.highPayoutFactor, "蘑菇：JACKPOT 整筆派彩 ×8！", "bonus");
+  if (roleId === "tomato" && roleRoll(rolls, "tomato") < ROLE_MATH.tomato.triggerChance) {
+    payout *= ROLE_MATH.tomato.highPayoutFactor;
+    notes.push("番茄：自動收成整筆 ×3");
+    triggeredRoleIds.push("tomato");
   }
-  return result(basePayout);
+  return result(payout, notes, triggeredRoleIds);
 }
 
-export function settleCrashRole(roleId, remainingStake, roll) {
+export function settleCrashRole(roleId, remainingStake, rolls, roundRoleIds = [roleId]) {
   const safeStake = Math.max(0, remainingStake);
-  const safeRoll = clampUnit(roll);
-  if (roleId === "pumpkin" && safeRoll < ROLE_MATH.pumpkin.refundChance) {
-    return result(safeStake, "南瓜：爆掉全額返本！", "bonus");
+  const selected = normalizedRoleIds(roleId, roundRoleIds);
+  if (selected.includes("pumpkin") && roleRoll(rolls, "pumpkin") < ROLE_MATH.pumpkin.refundChance) {
+    return result(safeStake, ["南瓜支援：退回 100% 本金"], ["pumpkin"]);
   }
   return result(0);
 }
 
-export function pairProfitFactor(kind, roll) {
-  const safeRoll = clampUnit(roll);
-  const config = kind === "scallion" ? ROLE_MATH.scallion : ROLE_MATH.peanut;
-  const hit = safeRoll < config.triggerChance;
-  return {
-    factor: hit ? config.highProfitFactor : 1,
-    outcome: hit ? "bonus" : "neutral",
-    note: hit
-      ? kind === "scallion" ? "雙葉青蔥：成功注利潤 +40%！" : "花生：兩注利潤 +24%！"
-      : "",
-  };
-}
-
-export function expectedSuccessfulPayout(roleId, stake, multiplier) {
+export function expectedSuccessfulPayout(roleId, stake, multiplier, roundRoleIds = [roleId]) {
   const safeStake = Math.max(0, stake);
   const safeMultiplier = safeTarget(multiplier);
-  return safeStake * safeMultiplier * expectedSuccessFactor(roleId, safeMultiplier);
+  return safeStake * safeMultiplier * expectedSuccessFactor(roleId, safeMultiplier, roundRoleIds);
 }
 
-export function expectedCrashPayout(roleId, stake) {
+export function expectedCrashPayout(roleId, stake, roundRoleIds = [roleId]) {
   const safeStake = Math.max(0, stake);
-  return roleId === "pumpkin" ? safeStake * ROLE_MATH.pumpkin.refundChance : 0;
+  return normalizedRoleIds(roleId, roundRoleIds).includes("pumpkin")
+    ? safeStake * ROLE_MATH.pumpkin.refundChance
+    : 0;
 }
 
 function roundReturnParts(wagers) {
   const active = normalizeWagers(wagers);
+  const roundRoleIds = [...new Set(active.map((wager) => wager.roleId))];
   const totalStake = active.reduce((sum, wager) => sum + wager.stake, 0);
   let crashFloor = 0;
   let baseCoefficient = 0;
 
   for (const wager of active) {
-    const success = expectedSuccessfulPayout(wager.roleId, wager.stake, wager.target);
-    const crash = expectedCrashPayout(wager.roleId, wager.stake);
+    const success = expectedSuccessfulPayout(wager.roleId, wager.stake, wager.target, roundRoleIds);
+    const crash = expectedCrashPayout(wager.roleId, wager.stake, roundRoleIds);
     crashFloor += crash;
     baseCoefficient += (success - crash) / wager.target;
-  }
-
-  if (active.length === 2 && active.some((wager) => wager.roleId === "peanut")) {
-    const bothWinTarget = Math.max(active[0].target, active[1].target);
-    const expectedProfit = active.reduce((sum, wager) => (
-      sum + Math.max(0, expectedSuccessfulPayout(wager.roleId, wager.stake, wager.target) - wager.stake)
-    ), 0);
-    baseCoefficient += ROLE_MATH.peanut.expectedProfitBonus * expectedProfit / bothWinTarget;
-  }
-
-  if (active.length === 2 && active.some((wager) => wager.roleId === "scallion")) {
-    const ordered = [...active].sort((first, second) => first.target - second.target);
-    if (ordered[0].target < ordered[1].target) {
-      const winnerProfit = Math.max(0, expectedSuccessfulPayout(ordered[0].roleId, ordered[0].stake, ordered[0].target) - ordered[0].stake);
-      const oneWinProbabilityCoefficient = 1 / ordered[0].target - 1 / ordered[1].target;
-      baseCoefficient += ROLE_MATH.scallion.expectedProfitBonus * winnerProfit * oneWinProbabilityCoefficient;
-    }
   }
 
   return { totalStake, crashFloor, baseCoefficient };

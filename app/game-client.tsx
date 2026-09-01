@@ -7,7 +7,6 @@ import {
   calibrateRoundBaseRtp,
   crashPointFromUnit,
   MAX_SETTLEMENT_MULTIPLIER,
-  pairProfitFactor,
   settleCrashRole,
   settleSuccessfulCashout,
   TARGET_RTP,
@@ -20,12 +19,10 @@ type RoleId =
   | "chili"
   | "pumpkin"
   | "tomato"
-  | "okra"
   | "peapod"
-  | "corn"
-  | "scallion"
-  | "mushroom"
-  | "peanut";
+  | "mushroom";
+
+type AbilityRolls = Record<"potato" | "chili" | "pumpkin" | "tomato" | "mushroom" | "target", number>;
 
 type Role = {
   id: RoleId;
@@ -64,22 +61,26 @@ type RoundSpec = {
   crashUnit: number;
   baseRtp: number;
   crashPoint: number;
-  comboRoll: number;
-  abilityRolls: Array<{ bonus: number; target: number }>;
+  abilityRolls: AbilityRolls[];
 };
 
 const roles: Role[] = [
-  { id: "potato", name: "馬鈴薯", short: "早收拚雙倍", detail: "2× 前成功收回，有機會整筆雙倍。", accent: "#f0b55b" },
-  { id: "chili", name: "辣椒", short: "高倍拚雙倍", detail: "5× 後成功收回，有機會整筆雙倍。", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "爆掉有機會返本", detail: "被抓到時，有機會拿回全部本金。", accent: "#ff9d3d" },
-  { id: "tomato", name: "番茄", short: "成功利潤 +12%", detail: "每次成功收回，利潤固定增加 12%。", accent: "#ff6358" },
-  { id: "okra", name: "秋葵", short: "隨機自動收成", detail: "會在 2×～5× 自動收回，成功利潤 +25%。", accent: "#79c94f" },
-  { id: "peapod", name: "豌豆莢", short: "一注分兩顆收", detail: "先收一半，另一顆繼續跑；利潤 +10%。", accent: "#70d858" },
-  { id: "corn", name: "雙色玉米", short: "金色面加利潤", detail: "成功收回後，50% 機率利潤 +50%。", accent: "#ffd447" },
-  { id: "scallion", name: "雙葉青蔥", short: "一敗一勝可救援", detail: "雙注一勝一敗時，有機會強化成功注。", accent: "#4fbd70" },
-  { id: "mushroom", name: "蘑菇", short: "極低機率中 8 倍", detail: "成功收回時，極低機率整筆變成 8 倍。", accent: "#8a5abb" },
-  { id: "peanut", name: "花生", short: "雙注成功一起加成", detail: "兩注都成功時，有機會讓兩注一起加成。", accent: "#d9a552" },
+  { id: "potato", name: "馬鈴薯", short: "2× 前拚雙倍", detail: "2.00× 前成功 Cash Out，有機會整筆 ×2。", accent: "#f0b55b" },
+  { id: "chili", name: "辣椒", short: "5× 後拚雙倍", detail: "5.00× 以上成功 Cash Out，有機會整筆 ×2。", accent: "#ff5a4f" },
+  { id: "pumpkin", name: "南瓜", short: "爆掉有機會返本", detail: "爆掉時，有機會退回 100% 本金。", accent: "#ff9d3d" },
+  { id: "tomato", name: "番茄", short: "隨機收成拚三倍", detail: "自動在 2.00×–5.00× Cash Out；成功有機會 ×3。", accent: "#ff6358" },
+  { id: "peapod", name: "豌豆莢", short: "一注分兩次收", detail: "第一次收回 50%，剩下 50% 繼續跑。", accent: "#70d858" },
+  { id: "mushroom", name: "蘑菇", short: "極低機率 Jackpot", detail: "成功 Cash Out 時，極低機率觸發整筆 ×8。", accent: "#8a5abb" },
 ];
+
+const forcedAbilityRolls: AbilityRolls = {
+  potato: 0,
+  chili: 0,
+  pumpkin: 0,
+  tomato: 0,
+  mushroom: 0,
+  target: 0.5,
+};
 
 const roleById = Object.fromEntries(roles.map((role) => [role.id, role])) as Record<RoleId, Role>;
 
@@ -102,9 +103,15 @@ function blankTicket(index: number): Ticket {
 }
 
 function ticketStrategyTarget(ticket: Ticket) {
-  return ticket.roleId === "okra" && ticket.autoRoleTarget
+  return ticket.roleId === "tomato" && ticket.autoRoleTarget
     ? ticket.autoRoleTarget
     : ticket.autoCashTarget;
+}
+
+function selectedRoundRoleIds(tickets: Ticket[]) {
+  return [...new Set(tickets
+    .filter((ticket) => ticket.enabled && ticket.placed)
+    .map((ticket) => ticket.roleId))];
 }
 
 function ticketsToRtpWagers(tickets: Ticket[]) {
@@ -135,28 +142,23 @@ async function digestHex(value: string) {
 
 async function makeRoundSpec(): Promise<RoundSpec> {
   const seed = crypto.randomUUID();
-  const [commitment, crashHash, comboHash, ...abilityHashes] = await Promise.all([
+  const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "mushroom", "target"] as const;
+  const [commitment, crashHash, ...abilityHashes] = await Promise.all([
     digestHex(seed),
     digestHex(seed + ":crash"),
-    digestHex(seed + ":combo"),
-    digestHex(seed + ":ticket:0:bonus"),
-    digestHex(seed + ":ticket:0:target"),
-    digestHex(seed + ":ticket:1:bonus"),
-    digestHex(seed + ":ticket:1:target"),
+    ...[0, 1].flatMap((index) => abilityKeys.map((key) => digestHex(`${seed}:ticket:${index}:${key}`))),
   ]);
   const crashUnit = Number.parseInt(crashHash.slice(0, 13), 16) / 0x10000000000000;
-  const comboRoll = Number.parseInt(comboHash.slice(0, 13), 16) / 0x10000000000000;
-  const abilityRolls = [0, 1].map((index) => ({
-    bonus: Number.parseInt(abilityHashes[index * 2].slice(0, 13), 16) / 0x10000000000000,
-    target: Number.parseInt(abilityHashes[index * 2 + 1].slice(0, 13), 16) / 0x10000000000000,
-  }));
+  const abilityRolls = [0, 1].map((index) => Object.fromEntries(abilityKeys.map((key, keyIndex) => [
+    key,
+    Number.parseInt(abilityHashes[index * abilityKeys.length + keyIndex].slice(0, 13), 16) / 0x10000000000000,
+  ]))) as AbilityRolls[];
   return {
     seed,
     commitment,
     crashUnit,
     baseRtp: TARGET_RTP,
     crashPoint: crashPointFromUnit(crashUnit),
-    comboRoll,
     abilityRolls,
   };
 }
@@ -181,7 +183,6 @@ function SkillEffect({ effect, x }: { effect: SkillFx; x: number }) {
       <span className="fx-shape">
         <Image className="fx-role-art fx-role-main" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
         <Image className="fx-role-art fx-role-copy" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
-        {effect.roleId === "corn" && <Image className="fx-corn-kernels" src="/effects/corn-gold-kernels.png?v=1" width={180} height={120} alt="" aria-hidden="true" />}
         <span className="fx-particles"><i /><i /><i /><i /><i /><i /><i /><i /></span>
       </span>
       <strong>{effect.label}</strong>
@@ -214,7 +215,6 @@ export default function GameClient() {
   const showcaseModeRef = useRef(showcaseMode);
   const betDeadlineRef = useRef(0);
   const runStartRef = useRef(0);
-  const bonusFlagsRef = useRef({ peanut: false, scallion: false });
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const countdownTickRef = useRef(8);
@@ -371,7 +371,7 @@ export default function GameClient() {
       cashAt: null,
       remaining: 1,
       note: "",
-      autoRoleTarget: current.roleId === "okra" ? 2 + targetRoll * 3 : null,
+      autoRoleTarget: current.roleId === "tomato" ? 2 + targetRoll * 3 : null,
     } : current);
     ticketsRef.current = nextTickets;
     setTickets(nextTickets);
@@ -380,61 +380,44 @@ export default function GameClient() {
     haptic(14);
   }, [haptic, showToast, tone]);
 
-  const applyPeanutSwing = useCallback((next: Ticket[]) => {
-    if (bonusFlagsRef.current.peanut) return { tickets: next, adjustment: 0 };
-    const liveTickets = next.filter((ticket) => ticket.enabled && ticket.placed);
-    const hasPeanut = liveTickets.some((ticket) => ticket.roleId === "peanut");
-    if (!hasPeanut || liveTickets.length !== 2 || !liveTickets.every((ticket) => ticket.status === "cashed")) {
-      return { tickets: next, adjustment: 0 };
-    }
-    bonusFlagsRef.current.peanut = true;
-    const pairRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.comboRoll ?? .5;
-    const pairResult = pairProfitFactor("peanut", pairRoll);
-    let totalAdjustment = 0;
-    const adjusted = next.map((ticket) => {
-      if (!ticket.enabled || !ticket.placed || ticket.status !== "cashed") return ticket;
-      const profit = Math.max(0, ticket.payout - ticket.amount);
-      const adjustment = profit * (pairResult.factor - 1);
-      totalAdjustment += adjustment;
-      return { ...ticket, payout: ticket.payout + adjustment, note: pairResult.note || ticket.note };
-    });
-    return { tickets: adjusted, adjustment: totalAdjustment };
-  }, []);
-
-  const cashOut = useCallback((index: number, at: number, forceFull = false) => {
+  const cashOut = useCallback((index: number, at: number, automatic = false) => {
     if (phaseRef.current !== "running") return;
     const currentTickets = ticketsRef.current;
     const current = currentTickets[index];
     if (!current || current.status !== "running" || current.remaining <= 0) return;
-    const roleRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[index]?.bonus ?? .5;
-    if (current.roleId === "okra" && !forceFull) {
-      showToast("秋葵正在憋住", "成熟時會自己彈開並 Cash Out", "bad");
+    const abilityRolls = showcaseModeRef.current
+      ? forcedAbilityRolls
+      : roundSpecRef.current?.abilityRolls[index] ?? forcedAbilityRolls;
+    if (current.roleId === "tomato" && !automatic) {
+      showToast("番茄會自己決定時機", "將在 2.00×–5.00× 自動 Cash Out", "bad");
       tone(210);
       return;
     }
 
-    const isHalf = current.roleId === "peapod" && current.remaining > 0.5 && !forceFull;
+    const isHalf = current.roleId === "peapod" && current.remaining > 0.5;
     const portion = isHalf ? 0.5 : current.remaining;
     const stake = current.amount * portion;
-    const settlement = settleSuccessfulCashout(current.roleId, stake, at, roleRoll);
+    const settlement = settleSuccessfulCashout(current.roleId, stake, at, abilityRolls, selectedRoundRoleIds(currentTickets));
     const paid = settlement.payout;
-    const note = isHalf ? "豌豆莢：一顆先收，另一顆繼續跑" : settlement.note;
+    const roleNote = isHalf
+      ? "豌豆莢：一顆先收，另一顆繼續跑"
+      : current.roleId === "tomato" && !settlement.note
+        ? `番茄：在 ${at.toFixed(2)}× 自動收成`
+        : "";
+    const note = [roleNote, settlement.note].filter(Boolean).join(" · ");
     const skillTone: "good" | "gold" = settlement.outcome === "bonus" ? "gold" : "good";
     if (current.roleId === "peapod") {
-      triggerSkillFx("peapod", index, isHalf ? "一顆先收！" : "第二顆收回！");
-    } else if (current.roleId === "okra") {
-      triggerSkillFx("okra", index, "成熟彈開！");
-    } else if (current.roleId === "tomato") {
-      triggerSkillFx("tomato", index, "穩定加成！");
-    } else if (settlement.outcome === "bonus") {
-      const labels: Partial<Record<RoleId, string>> = {
-        potato: "早收雙倍！",
-        chili: "高倍爆發！",
-        corn: "金色收成 +50% 利潤！",
-        mushroom: "八點全亮！",
-      };
-      triggerSkillFx(current.roleId, index, labels[current.roleId] ?? "角色能力觸發！");
+      triggerSkillFx("peapod", index, isHalf ? "彈出一顆，50% 繼續跑！" : "第二顆收回！");
+    } else if (current.roleId === "tomato" && !settlement.triggeredRoleIds.includes("tomato")) {
+      triggerSkillFx("tomato", index, "隨機收成！");
     }
+    const labels: Partial<Record<RoleId, string>> = {
+      potato: "馬鈴薯支援 · 早收 ×2！",
+      chili: "辣椒支援 · 高倍 ×2！",
+      tomato: "番茄旋轉收成 ×3！",
+      mushroom: "蘑菇支援 · JACKPOT ×8！",
+    };
+    settlement.triggeredRoleIds.forEach((roleId) => triggerSkillFx(roleId, index, labels[roleId] ?? "角色能力觸發！"));
     const next = currentTickets.map((ticket, ticketIndex) => {
       if (ticketIndex !== index) return ticket;
       const remaining = Math.max(0, ticket.remaining - portion);
@@ -444,39 +427,32 @@ export default function GameClient() {
         cashAt: at,
         remaining,
         status: remaining > 0 ? "running" as const : "cashed" as const,
+        autoCash: isHalf && automatic ? null : ticket.autoCash,
         note,
       };
     });
-    const peanutResult = applyPeanutSwing(next);
-    const totalCredit = paid + peanutResult.adjustment;
-    const nextBalance = balanceRef.current + totalCredit;
+    const nextBalance = balanceRef.current + paid;
     balanceRef.current = nextBalance;
-    ticketsRef.current = peanutResult.tickets;
+    ticketsRef.current = next;
     setBalance(nextBalance);
-    setTickets(peanutResult.tickets);
+    setTickets(next);
 
-    if (peanutResult.adjustment !== 0) {
-      triggerSkillFx("peanut", null, "雙仁同心！");
-      showToast("花生雙仁同心！", `雙注利潤 +${money(peanutResult.adjustment)}`, "gold");
-      tone(880, 0.18);
-      haptic([18, 28, 24]);
-    } else {
-      if (note) showToast(note, `下注 ${index + 1} +${money(paid)}`, skillTone);
-      else showToast(`下注 ${index + 1} Cash Out`, `${at.toFixed(2)}× · +${money(paid)}`, "good");
-      tone(skillTone === "gold" ? 930 : 720, 0.13);
-      haptic(skillTone === "gold" ? [18, 28, 24] : 18);
-    }
-  }, [applyPeanutSwing, haptic, showToast, tone, triggerSkillFx]);
+    if (note) showToast(note, `下注 ${index + 1} +${money(paid)}`, skillTone);
+    else showToast(`下注 ${index + 1} Cash Out`, `${at.toFixed(2)}× · +${money(paid)}`, "good");
+    tone(skillTone === "gold" ? 930 : 720, 0.13);
+    haptic(skillTone === "gold" ? [18, 28, 24] : 18);
+  }, [haptic, showToast, tone, triggerSkillFx]);
 
   const settleCrash = useCallback((crashPoint: number) => {
     let refundCredit = 0;
-    let scallionAdjustment = 0;
-    let scallionWinnerIndex: number | null = null;
+    const roundRoleIds = selectedRoundRoleIds(ticketsRef.current);
     const settled = ticketsRef.current.map((ticket, ticketIndex) => {
       if (!ticket.enabled || !ticket.placed || ticket.status !== "running" || ticket.remaining <= 0) return ticket;
       const refundableStake = ticket.amount * ticket.remaining;
-      const roleRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[ticketIndex]?.bonus ?? .5;
-      const crashSettlement = settleCrashRole(ticket.roleId, refundableStake, roleRoll);
+      const abilityRolls = showcaseModeRef.current
+        ? forcedAbilityRolls
+        : roundSpecRef.current?.abilityRolls[ticketIndex] ?? forcedAbilityRolls;
+      const crashSettlement = settleCrashRole(ticket.roleId, refundableStake, abilityRolls, roundRoleIds);
       if (crashSettlement.payout > 0) {
         refundCredit += crashSettlement.payout;
         return {
@@ -489,50 +465,24 @@ export default function GameClient() {
       }
       return { ...ticket, status: "lost" as const, remaining: 0, note: `爆點 ${crashPoint.toFixed(2)}×` };
     });
-
-    if (!bonusFlagsRef.current.scallion) {
-      const played = settled.filter((ticket) => ticket.enabled && ticket.placed);
-      const hasScallion = played.some((ticket) => ticket.roleId === "scallion");
-      const winners = played.filter((ticket) => ticket.status === "cashed");
-      const losers = played.filter((ticket) => ticket.status === "lost" || ticket.status === "refunded");
-      if (hasScallion && played.length === 2 && winners.length === 1 && losers.length === 1) {
-        bonusFlagsRef.current.scallion = true;
-        const winnerIndex = settled.indexOf(winners[0]);
-        scallionWinnerIndex = winnerIndex;
-        const profit = Math.max(0, winners[0].payout - winners[0].amount);
-        const pairRoll = showcaseModeRef.current ? 0 : roundSpecRef.current?.comboRoll ?? .5;
-        const pairResult = pairProfitFactor("scallion", pairRoll);
-        scallionAdjustment = profit * (pairResult.factor - 1);
-        if (scallionAdjustment !== 0) {
-          settled[winnerIndex] = { ...settled[winnerIndex], payout: settled[winnerIndex].payout + scallionAdjustment, note: pairResult.note };
-        }
-      }
-    }
-
-    const totalCredit = refundCredit + scallionAdjustment;
-    if (totalCredit !== 0) {
-      const nextBalance = balanceRef.current + totalCredit;
+    if (refundCredit !== 0) {
+      const nextBalance = balanceRef.current + refundCredit;
       balanceRef.current = nextBalance;
       setBalance(nextBalance);
     }
     ticketsRef.current = settled;
     setTickets(settled);
 
-    if (scallionAdjustment !== 0) {
-      triggerSkillFx("scallion", scallionWinnerIndex, "敗方力量轉移！");
-      showToast("雙葉青蔥救援！", `成功注利潤 +${money(scallionAdjustment)}`, "gold");
-      tone(760, 0.18);
-    } else if (refundCredit > 0) {
+    if (refundCredit > 0) {
       settled.forEach((ticket, ticketIndex) => {
-        if (ticket.status === "refunded") triggerSkillFx("pumpkin", ticketIndex, "厚殼保住本金！");
+        if (ticket.status === "refunded") triggerSkillFx("pumpkin", ticketIndex, "南瓜支援 · 100% 返本！");
       });
-      showToast("南瓜保本成功！", `返還本金 +${money(refundCredit)}`, "gold");
+      showToast("南瓜共享保本成功！", `返還本金 +${money(refundCredit)}`, "gold");
       tone(840, 0.22);
     }
   }, [showToast, tone, triggerSkillFx]);
 
   const beginRound = useCallback(() => {
-    bonusFlagsRef.current = { peanut: false, scallion: false };
     countdownTickRef.current = 8;
     setMultiplier(1);
     setCountdown(8);
@@ -640,7 +590,7 @@ export default function GameClient() {
       const crashPoint = roundSpecRef.current?.crashPoint ?? 2.5;
       ticketsRef.current.forEach((ticket, index) => {
         if (ticket.status !== "running") return;
-        const target = ticket.roleId === "okra" ? ticket.autoRoleTarget : ticket.autoCash;
+        const target = ticket.roleId === "tomato" ? ticket.autoRoleTarget : ticket.autoCash;
         if (target && target < crashPoint && nextMultiplier >= target) cashOut(index, target, true);
       });
       if (nextMultiplier >= crashPoint) {
@@ -706,7 +656,7 @@ export default function GameClient() {
     updateTicket(ticketIndex, (current) => ({
       ...current,
       roleId,
-      autoCash: roleId === "okra" ? null : current.autoCash,
+      autoCash: roleId === "tomato" ? null : current.autoCash,
     }));
     tone(650);
   };
@@ -734,7 +684,7 @@ export default function GameClient() {
 
   const toggleAutoCash = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
-    if (phase !== "betting" || ticket.placed || ticket.roleId === "okra") return;
+    if (phase !== "betting" || ticket.placed || ticket.roleId === "tomato") return;
     updateTicket(ticketIndex, (current) => ({ ...current, autoCash: current.autoCash ? null : current.autoCashTarget }));
     tone(ticket.autoCash ? 410 : 590, .055, "triangle");
   };
@@ -786,7 +736,7 @@ export default function GameClient() {
     }
     if (!ticket.placed) return "NO BET";
     if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
-    if (ticket.roleId === "okra") return "AUTO CASHOUT";
+    if (ticket.roleId === "tomato") return "AUTO 2–5×";
     if (ticket.status !== "running") return "SETTLED";
     return ticket.roleId === "peapod" && ticket.remaining === 1
       ? `CASH 50% · ${money(ticket.amount * .5 * multiplier)}`
@@ -797,7 +747,7 @@ export default function GameClient() {
     (phase === "betting" && (ticket.placed || !roundSpec)) ||
     phase === "crashed" ||
     (phase === "running" && ticket.status !== "running") ||
-    (phase === "running" && ticket.roleId === "okra");
+    (phase === "running" && ticket.roleId === "tomato");
 
   return (
     <main className="game-shell">
@@ -983,8 +933,8 @@ export default function GameClient() {
                     ><i /></button>
                   </div>
                   <div className="option-control auto-cash-control">
-                    <span>AUTO CASHOUT {ticket.roleId === "okra" ? "RANDOM" : ""}</span>
-                    {ticket.roleId !== "okra" && (
+                    <span>AUTO CASHOUT {ticket.roleId === "tomato" ? "2–5×" : ""}</span>
+                    {ticket.roleId !== "tomato" && (
                       <div className="auto-cash-setting">
                         <button
                           disabled={!canEdit || ticket.autoCashTarget <= 1.01}
@@ -1014,9 +964,9 @@ export default function GameClient() {
                       </div>
                     )}
                     <button
-                      className={`toggle ${ticket.autoCash || ticket.roleId === "okra" ? "on" : ""}`}
-                      disabled={!canEdit || ticket.roleId === "okra"}
-                      aria-pressed={Boolean(ticket.autoCash || ticket.roleId === "okra")}
+                      className={`toggle ${ticket.autoCash || ticket.roleId === "tomato" ? "on" : ""}`}
+                      disabled={!canEdit || ticket.roleId === "tomato"}
+                      aria-pressed={Boolean(ticket.autoCash || ticket.roleId === "tomato")}
                       aria-label={`下注 ${ticketIndex + 1} 自動 Cash Out`}
                       onClick={() => toggleAutoCash(ticketIndex)}
                     ><i /></button>
@@ -1057,6 +1007,10 @@ export default function GameClient() {
                     <div><strong>{role.name}</strong><span>{role.short}</span></div>
                   </article>
                 ))}
+              </div>
+              <div className="ability-sharing-note">
+                <strong>雙注聯動</strong>
+                <span>馬鈴薯、辣椒、南瓜、蘑菇可支援另一注；番茄與豌豆莢只改變自己那一注。</span>
               </div>
               <div className="menu-actions">
                 <button
