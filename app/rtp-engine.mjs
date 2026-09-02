@@ -73,7 +73,7 @@ function expectedSuccessFactor(roleId, multiplier, roundRoleIds) {
 
 export function crashPointFromUnit(unit, baseRtp = TARGET_RTP) {
   const safeUnit = clampUnit(unit);
-  const safeBaseRtp = Math.min(TARGET_RTP, Math.max(0.01, baseRtp));
+  const safeBaseRtp = Math.min(TARGET_RTP, Math.max(Number.EPSILON, baseRtp));
   return Math.min(100, Math.max(1, safeBaseRtp / Math.max(Number.EPSILON, 1 - safeUnit)));
 }
 
@@ -163,6 +163,24 @@ function roundReturnParts(wagers) {
   return { totalStake, crashFloor, baseCoefficient };
 }
 
+function parlayReturnParts(wagers) {
+  const active = normalizeWagers(wagers);
+  const roundRoleIds = [...new Set(active.map((wager) => wager.roleId))];
+  const totalStake = active.reduce((sum, wager) => sum + wager.stake, 0);
+  if (active.length !== 2) return { totalStake, crashFloor: 0, baseCoefficient: 0 };
+
+  const legFactors = active.map((wager) => (
+    expectedSuccessfulPayout(wager.roleId, 1, wager.target, roundRoleIds)
+  ));
+  const successPayout = totalStake * legFactors.reduce((product, factor) => product * factor, 1);
+  const finalTarget = Math.max(...active.map((wager) => wager.target));
+  const crashFloor = roundRoleIds.includes("pumpkin")
+    ? totalStake * ROLE_MATH.pumpkin.refundChance
+    : 0;
+  const baseCoefficient = (successPayout - crashFloor) / finalTarget;
+  return { totalStake, crashFloor, baseCoefficient };
+}
+
 export function expectedRoundReturn(wagers, baseRtp) {
   const { crashFloor, baseCoefficient } = roundReturnParts(wagers);
   return crashFloor + Math.max(0, baseRtp) * baseCoefficient;
@@ -172,5 +190,17 @@ export function calibrateRoundBaseRtp(wagers) {
   const { totalStake, crashFloor, baseCoefficient } = roundReturnParts(wagers);
   if (totalStake <= 0 || baseCoefficient <= 0) return TARGET_RTP;
   const required = (TARGET_RTP * totalStake - crashFloor) / baseCoefficient;
-  return Math.min(TARGET_RTP, Math.max(0.01, required));
+  return Math.min(TARGET_RTP, Math.max(Number.EPSILON, required));
+}
+
+export function expectedParlayRoundReturn(wagers, baseRtp) {
+  const { crashFloor, baseCoefficient } = parlayReturnParts(wagers);
+  return crashFloor + Math.max(0, baseRtp) * baseCoefficient;
+}
+
+export function calibrateParlayBaseRtp(wagers) {
+  const { totalStake, crashFloor, baseCoefficient } = parlayReturnParts(wagers);
+  if (totalStake <= 0 || baseCoefficient <= 0) return TARGET_RTP;
+  const required = (TARGET_RTP * totalStake - crashFloor) / baseCoefficient;
+  return Math.min(TARGET_RTP, Math.max(Number.EPSILON, required));
 }

@@ -23,3 +23,5 @@ export function expectedSuccessfulPayout(roleId: RtpRoleId, stake: number, multi
 export function expectedCrashPayout(roleId: RtpRoleId, stake: number, roundRoleIds?: RtpRoleId[]): number;
 export function expectedRoundReturn(wagers: RtpWager[], baseRtp: number): number;
 export function calibrateRoundBaseRtp(wagers: RtpWager[]): number;
+export function expectedParlayRoundReturn(wagers: RtpWager[], baseRtp: number): number;
+export function calibrateParlayBaseRtp(wagers: RtpWager[]): number;

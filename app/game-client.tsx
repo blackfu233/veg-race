@@ -4,6 +4,7 @@ import Image from "next/image";
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
 import {
+  calibrateParlayBaseRtp,
   calibrateRoundBaseRtp,
   crashPointFromUnit,
   MAX_SETTLEMENT_MULTIPLIER,
@@ -13,7 +14,7 @@ import {
 } from "./rtp-engine.mjs";
 
 type Phase = "betting" | "running" | "crashed";
-type TicketStatus = "idle" | "placed" | "running" | "cashed" | "lost" | "refunded";
+type TicketStatus = "idle" | "placed" | "running" | "locked" | "cashed" | "lost" | "refunded";
 type RoleId =
   | "potato"
   | "chili"
@@ -29,6 +30,7 @@ type Role = {
   name: string;
   short: string;
   detail: string;
+  scope: "shared" | "self";
   accent: string;
 };
 
@@ -65,12 +67,12 @@ type RoundSpec = {
 };
 
 const roles: Role[] = [
-  { id: "potato", name: "馬鈴薯", short: "2× 前拚雙倍", detail: "2.00× 前成功 Cash Out，有機會整筆 ×2。", accent: "#f0b55b" },
-  { id: "chili", name: "辣椒", short: "5× 後拚雙倍", detail: "5.00× 以上成功 Cash Out，有機會整筆 ×2。", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "爆掉有機會返本", detail: "爆掉時，有機會退回 100% 本金。", accent: "#ff9d3d" },
-  { id: "tomato", name: "番茄", short: "隨機收成拚三倍", detail: "自動在 2.00×–5.00× Cash Out；成功有機會 ×3。", accent: "#ff6358" },
-  { id: "peapod", name: "豌豆莢", short: "一注分兩次收", detail: "第一次收回 50%，剩下 50% 繼續跑。", accent: "#70d858" },
-  { id: "mushroom", name: "蘑菇", short: "極低機率 Jackpot", detail: "成功 Cash Out 時，極低機率觸發整筆 ×8。", accent: "#8a5abb" },
+  { id: "potato", name: "馬鈴薯", short: "2.00× 前成功：28% 派彩再 ×2", detail: "2.00× 前成功 → 28% 機率派彩再 ×2", scope: "shared", accent: "#f0b55b" },
+  { id: "chili", name: "辣椒", short: "5.00× 以上成功：34% 派彩再 ×2", detail: "5.00× 以上成功 → 34% 機率派彩再 ×2", scope: "shared", accent: "#ff5a4f" },
+  { id: "pumpkin", name: "南瓜", short: "爆掉：5% 退回全部本金", detail: "爆掉時 → 5% 機率退回全部本金", scope: "shared", accent: "#ff9d3d" },
+  { id: "tomato", name: "番茄", short: "2–5× 自動收：12% 派彩再 ×3", detail: "隨機 2.00×–5.00× 自動收 → 12% 機率派彩再 ×3", scope: "self", accent: "#ff6358" },
+  { id: "peapod", name: "豌豆莢", short: "一注分兩次，各收 50%", detail: "第一次收回 50% → 剩餘 50% 繼續跑", scope: "self", accent: "#70d858" },
+  { id: "mushroom", name: "蘑菇", short: "成功：4.5% 派彩再 ×8", detail: "成功 Cash Out → 4.5% 機率派彩再 ×8 Jackpot", scope: "shared", accent: "#8a5abb" },
 ];
 
 const forcedAbilityRolls: AbilityRolls = {
@@ -118,6 +120,11 @@ function ticketsToRtpWagers(tickets: Ticket[]) {
   return tickets
     .filter((ticket) => ticket.enabled && ticket.placed)
     .map((ticket) => ({ roleId: ticket.roleId, stake: ticket.amount, target: ticketStrategyTarget(ticket) }));
+}
+
+function parlayLegFactor(ticket: Ticket, liveMultiplier: number) {
+  if (!ticket.placed || ticket.amount <= 0) return 1;
+  return Math.max(1, ticket.payout / ticket.amount + ticket.remaining * liveMultiplier);
 }
 
 function money(value: number) {
@@ -205,6 +212,7 @@ export default function GameClient() {
   const [fairOpen, setFairOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [showcaseMode, setShowcaseMode] = useState(false);
+  const [parlayMode, setParlayMode] = useState(false);
   const [toast, setToast] = useState<{ title: string; body: string; tone: "good" | "bad" | "gold" } | null>(null);
   const [skillEffects, setSkillEffects] = useState<SkillFx[]>([]);
 
@@ -213,6 +221,7 @@ export default function GameClient() {
   const phaseRef = useRef<Phase>(phase);
   const roundSpecRef = useRef<RoundSpec | null>(roundSpec);
   const showcaseModeRef = useRef(showcaseMode);
+  const parlayModeRef = useRef(parlayMode);
   const betDeadlineRef = useRef(0);
   const runStartRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,6 +235,7 @@ export default function GameClient() {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { roundSpecRef.current = roundSpec; }, [roundSpec]);
   useEffect(() => { showcaseModeRef.current = showcaseMode; }, [showcaseMode]);
+  useEffect(() => { parlayModeRef.current = parlayMode; }, [parlayMode]);
 
   useEffect(() => {
     if (!rulesOpen && !fairOpen) return;
@@ -354,6 +364,40 @@ export default function GameClient() {
   const placeBet = useCallback((index: number) => {
     const ticket = ticketsRef.current[index];
     if (phaseRef.current !== "betting" || !roundSpecRef.current || !ticket.enabled || ticket.placed) return;
+
+    if (parlayModeRef.current) {
+      const activeTickets = ticketsRef.current.filter((current) => current.enabled);
+      if (activeTickets.length !== 2 || activeTickets.some((current) => current.placed)) return;
+      const totalStake = activeTickets.reduce((sum, current) => sum + current.amount, 0);
+      if (balanceRef.current < totalStake) {
+        showToast("籌碼不足", `同場串關需要 ${money(totalStake)} 籌碼`, "bad");
+        tone(180, 0.15);
+        return;
+      }
+      const nextBalance = balanceRef.current - totalStake;
+      const nextTickets = ticketsRef.current.map((current, ticketIndex) => {
+        const targetRoll = roundSpecRef.current?.abilityRolls[ticketIndex]?.target ?? .5;
+        return {
+          ...current,
+          placed: true,
+          status: "placed" as const,
+          payout: 0,
+          cashAt: null,
+          remaining: 1,
+          note: "",
+          autoRoleTarget: current.roleId === "tomato" ? 2 + targetRoll * 3 : null,
+        };
+      });
+      balanceRef.current = nextBalance;
+      ticketsRef.current = nextTickets;
+      setBalance(nextBalance);
+      setTickets(nextTickets);
+      showToast("同場串關已鎖定", `兩關共 ${money(totalStake)} 籌碼 · 倍率相乘`, "gold");
+      tone(680, .13, "triangle");
+      haptic([14, 22, 14]);
+      return;
+    }
+
     if (balanceRef.current < ticket.amount) {
       showToast("籌碼不足", "降低下注金額再試一次", "bad");
       tone(180, 0.15);
@@ -426,11 +470,46 @@ export default function GameClient() {
         payout: ticket.payout + paid,
         cashAt: at,
         remaining,
-        status: remaining > 0 ? "running" as const : "cashed" as const,
+        status: remaining > 0 ? "running" as const : parlayModeRef.current ? "locked" as const : "cashed" as const,
         autoCash: isHalf && automatic ? null : ticket.autoCash,
         note,
       };
     });
+
+    if (parlayModeRef.current) {
+      const parlayTickets = next.filter((ticket) => ticket.enabled && ticket.placed);
+      const parlayComplete = parlayTickets.length === 2 && parlayTickets.every((ticket) => ticket.status === "locked");
+      if (parlayComplete) {
+        const combinedFactor = parlayTickets.reduce((product, ticket) => product * (ticket.payout / ticket.amount), 1);
+        const settled = next.map((ticket) => ticket.enabled && ticket.placed ? {
+          ...ticket,
+          status: "cashed" as const,
+          payout: ticket.amount * combinedFactor,
+          note: `串關成功：兩關相乘 ${combinedFactor.toFixed(2)}×`,
+        } : ticket);
+        const totalPaid = settled.reduce((sum, ticket) => (
+          ticket.enabled && ticket.placed && ticket.status === "cashed" ? sum + ticket.payout : sum
+        ), 0);
+        const nextBalance = balanceRef.current + totalPaid;
+        balanceRef.current = nextBalance;
+        ticketsRef.current = settled;
+        setBalance(nextBalance);
+        setTickets(settled);
+        showToast("同場串關成功！", `${combinedFactor.toFixed(2)}× · +${money(totalPaid)}`, "gold");
+        tone(1040, .2, "triangle");
+        haptic([20, 24, 20, 24, 36]);
+        return;
+      }
+
+      ticketsRef.current = next;
+      setTickets(next);
+      if (isHalf) showToast("豌豆莢已收第一半", "本關尚未鎖定，剩餘 50% 繼續跑", skillTone);
+      else showToast(`串關第 ${index + 1} 關已鎖定`, `${(paid / current.amount).toFixed(2)}× · 等待另一關`, skillTone);
+      tone(skillTone === "gold" ? 930 : 720, 0.13);
+      haptic(skillTone === "gold" ? [18, 28, 24] : 18);
+      return;
+    }
+
     const nextBalance = balanceRef.current + paid;
     balanceRef.current = nextBalance;
     ticketsRef.current = next;
@@ -446,6 +525,49 @@ export default function GameClient() {
   const settleCrash = useCallback((crashPoint: number) => {
     let refundCredit = 0;
     const roundRoleIds = selectedRoundRoleIds(ticketsRef.current);
+
+    if (parlayModeRef.current) {
+      const settled = ticketsRef.current.map((ticket, ticketIndex) => {
+        if (!ticket.enabled || !ticket.placed || ticket.status === "cashed") return ticket;
+        const abilityRolls = showcaseModeRef.current
+          ? forcedAbilityRolls
+          : roundSpecRef.current?.abilityRolls[ticketIndex] ?? forcedAbilityRolls;
+        const crashSettlement = settleCrashRole(ticket.roleId, ticket.amount, abilityRolls, roundRoleIds);
+        if (crashSettlement.payout > 0) {
+          refundCredit += crashSettlement.payout;
+          return {
+            ...ticket,
+            status: "refunded" as const,
+            remaining: 0,
+            payout: crashSettlement.payout,
+            note: `串關失敗 · ${crashSettlement.note}`,
+          };
+        }
+        return {
+          ...ticket,
+          status: "lost" as const,
+          remaining: 0,
+          payout: 0,
+          note: `串關失敗：爆點 ${crashPoint.toFixed(2)}×`,
+        };
+      });
+      if (refundCredit > 0) {
+        const nextBalance = balanceRef.current + refundCredit;
+        balanceRef.current = nextBalance;
+        setBalance(nextBalance);
+        settled.forEach((ticket, ticketIndex) => {
+          if (ticket.status === "refunded") triggerSkillFx("pumpkin", ticketIndex, "南瓜支援 · 100% 返本！");
+        });
+        showToast("串關失敗，但南瓜保住本金", `返還 +${money(refundCredit)}`, "gold");
+        tone(840, 0.22);
+      } else {
+        showToast("同場串關失敗", "其中一關未完成，整組不派彩", "bad");
+      }
+      ticketsRef.current = settled;
+      setTickets(settled);
+      return;
+    }
+
     const settled = ticketsRef.current.map((ticket, ticketIndex) => {
       if (!ticket.enabled || !ticket.placed || ticket.status !== "running" || ticket.remaining <= 0) return ticket;
       const refundableStake = ticket.amount * ticket.remaining;
@@ -549,7 +671,10 @@ export default function GameClient() {
     const timer = setTimeout(() => {
       const currentSpec = roundSpecRef.current;
       if (!currentSpec) return;
-      const baseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(ticketsRef.current));
+      const wagers = ticketsToRtpWagers(ticketsRef.current);
+      const baseRtp = parlayModeRef.current && wagers.length === 2
+        ? calibrateParlayBaseRtp(wagers)
+        : calibrateRoundBaseRtp(wagers);
       const resolvedSpec = {
         ...currentSpec,
         baseRtp,
@@ -622,15 +747,24 @@ export default function GameClient() {
 
   const placedCount = tickets.filter((ticket) => ticket.enabled && ticket.placed).length;
   const runningCount = tickets.filter((ticket) => ticket.status === "running").length;
+  const lockedCount = tickets.filter((ticket) => ticket.status === "locked").length;
   const caughtCount = tickets.filter((ticket) => ticket.status === "lost" || ticket.status === "refunded").length;
+  const parlayLiveFactor = tickets
+    .filter((ticket) => ticket.enabled && ticket.placed)
+    .reduce((product, ticket) => product * parlayLegFactor(ticket, multiplier), 1);
 
   const stageMessage = useMemo(() => {
-    if (phase === "betting") return placedCount ? `${placedCount} 注已鎖定，準備開跑` : "選擇角色並在倒數前下注";
+    if (phase === "betting") {
+      if (parlayMode && placedCount === 2) return "同場串關已鎖定，準備開跑";
+      return placedCount ? `${placedCount} 注已鎖定，準備開跑` : "選擇角色並在倒數前下注";
+    }
     if (phase === "crashed") return `爆點 ${multiplier.toFixed(2)}×`;
     if (!placedCount) return "本局觀戰中";
+    if (parlayMode && runningCount > 0) return `同場串關 ${lockedCount}/2 · LIVE ${parlayLiveFactor.toFixed(2)}×`;
+    if (parlayMode && !runningCount) return "同場串關已完成結算";
     if (!runningCount) return "本局已完成結算";
     return "在收割者追上前 Cash Out！";
-  }, [multiplier, phase, placedCount, runningCount]);
+  }, [lockedCount, multiplier, parlayLiveFactor, parlayMode, phase, placedCount, runningCount]);
 
   const stageProgress = phase === "betting"
     ? Math.max(4, ((8 - countdown) / 8) * 100)
@@ -659,6 +793,19 @@ export default function GameClient() {
       autoCash: roleId === "tomato" ? null : current.autoCash,
     }));
     tone(650);
+  };
+
+  const changeBetMode = (nextParlayMode: boolean) => {
+    if (phase !== "betting" || placedCount > 0) return;
+    parlayModeRef.current = nextParlayMode;
+    setParlayMode(nextParlayMode);
+    showToast(
+      nextParlayMode ? "同場串關模式" : "獨立雙注模式",
+      nextParlayMode ? "兩關都成功才派彩，兩個倍率相乘" : "兩注各自 Cash Out、各自派彩",
+      nextParlayMode ? "gold" : "good",
+    );
+    tone(nextParlayMode ? 760 : 540, .1, "triangle");
+    haptic(12);
   };
 
   const changeStake = (ticketIndex: number, delta: number) => {
@@ -728,7 +875,9 @@ export default function GameClient() {
   };
 
   const ticketActionLabel = (ticket: Ticket) => {
-    if (phase === "betting") return ticket.placed ? "LOCKED" : roundSpec ? "BET" : "PREPARING";
+    if (phase === "betting") return ticket.placed
+      ? parlayMode ? "PARLAY LOCKED" : "LOCKED"
+      : roundSpec ? parlayMode ? "BET BOTH" : "BET" : "PREPARING";
     if (phase === "crashed") {
       if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
       if (ticket.status === "refunded") return "REFUNDED";
@@ -736,8 +885,12 @@ export default function GameClient() {
     }
     if (!ticket.placed) return "NO BET";
     if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
+    if (ticket.status === "locked") return `LEG LOCKED · ${(ticket.payout / ticket.amount).toFixed(2)}×`;
     if (ticket.roleId === "tomato") return "AUTO 2–5×";
     if (ticket.status !== "running") return "SETTLED";
+    if (parlayMode) return ticket.roleId === "peapod" && ticket.remaining === 1
+      ? `LOCK 50% · ${money(ticket.amount * .5 * multiplier)}`
+      : `LOCK LEG · ${parlayLegFactor(ticket, multiplier).toFixed(2)}×`;
     return ticket.roleId === "peapod" && ticket.remaining === 1
       ? `CASH 50% · ${money(ticket.amount * .5 * multiplier)}`
       : `CASH OUT · ${money(ticket.amount * ticket.remaining * multiplier)}`;
@@ -752,7 +905,7 @@ export default function GameClient() {
   return (
     <main className="game-shell">
       <section
-        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
+        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${parlayMode ? "parlay-mode" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
         aria-label="蔬菜跑跑 Crash Game Demo"
       >
         <section
@@ -827,27 +980,25 @@ export default function GameClient() {
           </div>
           {phase !== "betting" && (
             <div className="fox-pursuers" aria-hidden="true">
-              {tickets.map((ticket, index) => {
-                const shouldRender = phase === "running"
-                  ? ticket.status === "running" || ticket.status === "cashed"
-                  : phase === "crashed" && ticket.status !== "cashed";
-                if (!ticket.enabled || !ticket.placed || !shouldRender) return null;
-                const laneWave = Math.sin(visualRunTime * 2.35 + index * 1.9) * 7;
+              {(() => {
+                const hasPlacedTicket = tickets.some((ticket) => ticket.enabled && ticket.placed);
+                const hasUnfinishedTicket = tickets.some((ticket) => ticket.enabled && ticket.placed && ticket.status === "running");
+                const shouldRender = hasPlacedTicket && (phase === "running" || (phase === "crashed" && caughtCount > 0));
+                if (!shouldRender) return null;
+                const laneWave = Math.sin(visualRunTime * 2.35) * 5;
                 const foxPressure = phase === "crashed" ? 100 : Math.min(88, Math.max(8, chasePressure + laneWave));
-                const laneOrigin = placedCount === 1 ? 50 : index === 0 ? 38 : 67;
-                const foxX = 50 + (laneOrigin - 50) * (1 - foxPressure / 250);
+                const foxX = 50 + laneWave * .2;
                 return (
                   <div
-                    className={`fox-pursuer fox-${index + 1} ${phase === "running" && ticket.status === "cashed" ? "fox-retired" : ""}`}
+                    className={`fox-pursuer fox-shared ${phase === "running" && !hasUnfinishedTicket ? "fox-retired" : ""}`}
                     style={{
                       "--chase-pressure": foxPressure,
                       "--fox-opacity": phase === "crashed" ? 1 : Math.min(1, .7 + foxPressure / 380),
                       "--fox-x": `${foxX}%`,
                     } as CSSProperties}
-                    key={index}
                   />
                 );
-              })}
+              })()}
             </div>
           )}
           {phase === "crashed" && caughtCount > 0 && (
@@ -879,6 +1030,23 @@ export default function GameClient() {
             </div>
           )}
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
+          {phase === "betting" && (
+            <div className={`bet-mode-control stage-mode-control ${parlayMode ? "is-parlay" : ""}`} aria-label="雙注玩法">
+              <button
+                className={!parlayMode ? "selected" : ""}
+                disabled={placedCount > 0}
+                aria-pressed={!parlayMode}
+                onClick={() => changeBetMode(false)}
+              >獨立雙注</button>
+              <button
+                className={parlayMode ? "selected" : ""}
+                disabled={placedCount > 0}
+                aria-pressed={parlayMode}
+                onClick={() => changeBetMode(true)}
+              >🔗 同場串關</button>
+              <small>{parlayMode ? "兩關都成功才派彩 · 倍率相乘" : "兩注各自 Cash Out、各自派彩"}</small>
+            </div>
+          )}
           <button className="fair-link" onClick={() => setFairOpen(true)}>FAIR ✓</button>
         </section>
 
@@ -904,7 +1072,10 @@ export default function GameClient() {
                 </div>
 
                 <div className="role-info" style={{ "--role-accent": role.accent } as CSSProperties}>
-                  <div className="role-name-row"><strong>{role.name}</strong></div>
+                  <div className="role-name-row">
+                    <strong>{role.name}</strong>
+                    <span className={`role-scope scope-${role.scope}`}>{role.scope === "shared" ? "雙注共享" : "本注限定"}</span>
+                  </div>
                   <p>{role.detail}</p>
                 </div>
 
@@ -1004,13 +1175,17 @@ export default function GameClient() {
                 {roles.map((role) => (
                   <article key={role.id}>
                     <Sprite roleId={role.id} />
-                    <div><strong>{role.name}</strong><span>{role.short}</span></div>
+                    <div><strong>{role.name} · {role.scope === "shared" ? "雙注共享" : "本注限定"}</strong><span>{role.short}</span></div>
                   </article>
                 ))}
               </div>
               <div className="ability-sharing-note">
                 <strong>雙注聯動</strong>
-                <span>馬鈴薯、辣椒、南瓜、蘑菇可支援另一注；番茄與豌豆莢只改變自己那一注。</span>
+                <span>標示「雙注共享」的能力可支援另一注；「本注限定」只改變角色所在的那一注。</span>
+              </div>
+              <div className="parlay-sharing-note">
+                <strong>同場串關</strong>
+                <span>兩注共用同一個獵人、爆點與主倍率。兩關都成功才派彩，最終倍率為兩關結果相乘；任一關爆掉則整組失敗。</span>
               </div>
               <div className="menu-actions">
                 <button
@@ -1051,10 +1226,10 @@ export default function GameClient() {
                 </div>
               )}
               <span className="field-label">本局角色／組合 VI 曲線</span>
-              <code>{phase === "betting" ? "下注鎖定後計算" : `${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → 含角色能力後目標 ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
+              <code>{phase === "betting" ? "下注鎖定後計算" : `${parlayMode ? "同場串關" : "獨立雙注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → 含角色能力後目標 ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
               <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls</code>
-              <p>開局先承諾 Seed 與爆點亂數；下注鎖定後，再依角色、組合、投注比例與面板策略倍率，將同一個亂數映射到對應 VI 爆點曲線。角色能力只會加成或不觸發，整體長期理論 RTP 目標為 {(TARGET_RTP * 100).toFixed(0)}%，不依玩家歷史輸贏動態調整。手動改變兌現時機會改變該策略的實際回報。</p>
+              <p>開局先承諾 Seed 與爆點亂數；下注鎖定後，再依角色、玩法、投注比例與面板策略倍率，將同一個亂數映射到對應 VI 爆點曲線。兩種玩法都共用同一爆點；同場串關另將兩關結果相乘。角色能力只會加成或不觸發，整體長期理論 RTP 目標為 {(TARGET_RTP * 100).toFixed(0)}%，不依玩家歷史輸贏動態調整。手動改變兌現時機會改變該策略的實際回報。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>

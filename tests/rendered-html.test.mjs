@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import {
+  calibrateParlayBaseRtp,
   calibrateRoundBaseRtp,
   crashPointFromUnit,
   expectedCrashPayout,
+  expectedParlayRoundReturn,
   expectedRoundReturn,
   expectedSuccessfulPayout,
   settleCrashRole,
@@ -42,6 +44,9 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙注聯動/);
+  assert.match(source, /同場串關/);
+  assert.match(source, /雙注共享/);
+  assert.match(source, /本注限定/);
 });
 
 test("locks the viewport and keeps touch controls zoom-free", async () => {
@@ -80,7 +85,25 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.match(source, /digestHex\(seed \+ ":crash"\)/);
   assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "mushroom", "target"\]/);
   assert.match(source, /digestHex\(`\$\{seed\}:ticket:\$\{index\}:\$\{key\}`\)/);
-  assert.match(source, /calibrateRoundBaseRtp\(ticketsToRtpWagers\(ticketsRef\.current\)\)/);
+  assert.match(source, /calibrateParlayBaseRtp\(wagers\)/);
+  assert.match(source, /calibrateRoundBaseRtp\(wagers\)/);
+});
+
+test("keeps same-event parlay on one shared crash and multiplies two legs", async () => {
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  assert.match(source, /兩關都成功才派彩/);
+  assert.match(source, /combinedFactor/);
+  assert.match(source, /fox-pursuer fox-shared/);
+  assert.match(source, /type RoundSpec = \{[\s\S]*?crashPoint: number;[\s\S]*?abilityRolls/);
+  assert.doesNotMatch(source, /crashPoint2|crashPoints/);
+
+  const plainParlay = [
+    { roleId: "peapod", stake: 100, target: 1.5 },
+    { roleId: "peapod", stake: 100, target: 5 },
+  ];
+  const baseRtp = calibrateParlayBaseRtp(plainParlay);
+  assert.ok(Math.abs(baseRtp - 0.64) < 1e-12);
+  assert.ok(Math.abs(expectedParlayRoundReturn(plainParlay, baseRtp) / 200 - TARGET_RTP) < 1e-12);
 });
 
 test("shares bonus roles across two tickets but keeps operation roles self-only", () => {
@@ -169,6 +192,25 @@ test("calibrates all six single-role and 21 unordered two-role VI curves to 96% 
       const combinedRtp = expectedRoundReturn(wagers, baseRtp) / wagers.reduce((sum, wager) => sum + wager.stake, 0);
       assert.ok(baseRtp <= TARGET_RTP);
       assert.ok(Math.abs(combinedRtp - TARGET_RTP) < 1e-9, `${roleIds[first]} + ${roleIds[second]} returned ${combinedRtp}`);
+      combinationCount += 1;
+    }
+  }
+  assert.equal(combinationCount, 21);
+});
+
+test("calibrates all 21 same-event parlay role pairs to 96% RTP", () => {
+  const targets = [1.2, 1.5, 2, 3, 5, 8];
+  let combinationCount = 0;
+  for (let first = 0; first < roleIds.length; first += 1) {
+    for (let second = first; second < roleIds.length; second += 1) {
+      const wagers = [
+        { roleId: roleIds[first], stake: 1, target: targets[first] },
+        { roleId: roleIds[second], stake: 1 + ((first + second) % 3), target: targets[second] },
+      ];
+      const baseRtp = calibrateParlayBaseRtp(wagers);
+      const parlayRtp = expectedParlayRoundReturn(wagers, baseRtp) / wagers.reduce((sum, wager) => sum + wager.stake, 0);
+      assert.ok(baseRtp <= TARGET_RTP);
+      assert.ok(Math.abs(parlayRtp - TARGET_RTP) < 1e-9, `${roleIds[first]} + ${roleIds[second]} parlay returned ${parlayRtp}`);
       combinationCount += 1;
     }
   }
