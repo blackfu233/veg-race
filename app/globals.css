@@ -246,6 +246,8 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .bet-action:not(:disabled):active { transform:translateY(3px); box-shadow:0 2px 0 #46943f; }
 .bet-action.cash-mode { background:linear-gradient(#ffd064,#ffb72f); box-shadow:0 5px 0 #da8718,0 8px 12px rgba(186,116,24,.14),inset 0 1px rgba(255,255,255,.35); font-size:18px; text-shadow:0 1px rgba(144,83,11,.25); animation:cashReady .7s ease-in-out infinite alternate; }
 .bet-action:disabled { opacity:.76; filter:saturate(.72); }
+.bet-action.cancel-mode { color:#805521; background:linear-gradient(#fff1cb,#edce8d); box-shadow:0 5px 0 #bd9958,inset 0 1px rgba(255,255,255,.8); font-size:20px; text-shadow:none; }
+.bet-action.cancel-mode:not(:disabled):active { box-shadow:0 2px 0 #bd9958; }
 .phase-crashed .bet-card.status-lost .bet-action { background:linear-gradient(#d78b7e,#bb6c61); box-shadow:0 5px 0 #8f4f49; }
 .phase-crashed .bet-card.status-refunded .bet-action { color:#754713; background:linear-gradient(#ffe079,#edbb4b); box-shadow:0 5px 0 #c58b28; text-shadow:none; }
 .phase-crashed .bet-card.status-cashed .bet-action { background:linear-gradient(#76d778,#50b95a); box-shadow:0 5px 0 #398b43; }

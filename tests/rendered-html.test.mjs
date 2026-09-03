@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
+import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "../app/ticket-actions.mjs";
 import {
   calibrateParlayBaseRtp,
   calibrateRoundBaseRtp,
@@ -18,6 +19,53 @@ import {
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
 const neutralRolls = { potato: 0.99, chili: 0.99, pumpkin: 0.99, tomato: 0.99, mushroom: 0.99 };
 const hitRolls = { potato: 0, chili: 0, pumpkin: 0, tomato: 0, mushroom: 0 };
+
+test("unplaced panels stay editable independently of the round phase", async () => {
+  assert.equal(canEditUnplacedTicket({ placed: false }), true);
+  assert.equal(canEditUnplacedTicket({ placed: true }), false);
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  assert.match(source, /const canEdit = canEditUnplacedTicket\(ticket\)/);
+  assert.match(source, /cancelledAutoBetRef\.current\.add\(ticketIndex\)/);
+  assert.match(source, /automatic && \(!ticket\.autoBet \|\| cancelledAutoBetRef\.current\.has\(index\)\)/);
+});
+
+test("cancellation refunds exactly one pending independent bet and is idempotent", () => {
+  const tickets = [
+    { placed: true, status: "placed", amount: 100, roleId: "potato", autoBet: true },
+    { placed: true, status: "placed", amount: 250, roleId: "chili", autoBet: false },
+  ];
+  const args = { tickets, balance: 650, index: 0, phase: "betting", parlayMode: false, now: 100, deadline: 200 };
+  const first = cancelPendingBet(args);
+  assert.equal(first.balance, 750);
+  assert.equal(first.refund, 100);
+  assert.deepEqual(first.cancelledIndexes, [0]);
+  assert.equal(first.tickets[0].placed, false);
+  assert.equal(first.tickets[0].autoBet, true);
+  assert.equal(first.tickets[1], tickets[1]);
+  assert.equal(tickets[0].placed, true, "input must not be mutated");
+  const repeated = cancelPendingBet({ ...args, tickets: first.tickets, balance: first.balance });
+  assert.equal(repeated.balance, 750);
+  assert.equal(repeated.refund, 0);
+});
+
+test("parlay cancellation reverses both legs before the deadline only", () => {
+  const tickets = [
+    { placed: true, status: "placed", amount: 100 },
+    { placed: true, status: "placed", amount: 250 },
+  ];
+  const args = { tickets, balance: 650, index: 1, phase: "betting", parlayMode: true, now: 199, deadline: 200 };
+  const result = cancelPendingBet(args);
+  assert.equal(result.balance, 1000);
+  assert.equal(result.refund, 350);
+  assert.deepEqual(result.cancelledIndexes, [0, 1]);
+  assert.ok(result.tickets.every((ticket) => !ticket.placed && ticket.status === "idle"));
+  assert.equal(cancelPendingBet({ ...args, now: 200 }).refund, 0);
+  assert.equal(cancelPendingBet({ ...args, phase: "running" }).refund, 0);
+  assert.equal(cancelPendingBet({ ...args, phase: "crashed" }).refund, 0);
+  assert.equal(bettingWindowOpen("betting", true, 199, 200), true);
+  assert.equal(bettingWindowOpen("betting", false, 199, 200), false);
+  assert.equal(bettingWindowOpen("betting", true, 200, 200), false);
+});
 
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
+import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "./ticket-actions.mjs";
 import {
   calibrateParlayBaseRtp,
   calibrateRoundBaseRtp,
@@ -223,6 +224,7 @@ export default function GameClient() {
   const showcaseModeRef = useRef(showcaseMode);
   const parlayModeRef = useRef(parlayMode);
   const betDeadlineRef = useRef(0);
+  const cancelledAutoBetRef = useRef(new Set<number>());
   const runStartRef = useRef(0);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -361,9 +363,10 @@ export default function GameClient() {
     setTickets(next);
   }, []);
 
-  const placeBet = useCallback((index: number) => {
+  const placeBet = useCallback((index: number, automatic = false) => {
     const ticket = ticketsRef.current[index];
-    if (phaseRef.current !== "betting" || !roundSpecRef.current || !ticket.enabled || ticket.placed) return;
+    if (!bettingWindowOpen(phaseRef.current, Boolean(roundSpecRef.current), performance.now(), betDeadlineRef.current)
+      || !ticket.enabled || ticket.placed || (automatic && (!ticket.autoBet || cancelledAutoBetRef.current.has(index)))) return;
 
     if (parlayModeRef.current) {
       const activeTickets = ticketsRef.current.filter((current) => current.enabled);
@@ -390,6 +393,7 @@ export default function GameClient() {
       });
       balanceRef.current = nextBalance;
       ticketsRef.current = nextTickets;
+      cancelledAutoBetRef.current.clear();
       setBalance(nextBalance);
       setTickets(nextTickets);
       showToast("同場串關已鎖定", `兩關共 ${money(totalStake)} 籌碼 · 倍率相乘`, "gold");
@@ -418,10 +422,37 @@ export default function GameClient() {
       autoRoleTarget: current.roleId === "tomato" ? 2 + targetRoll * 3 : null,
     } : current);
     ticketsRef.current = nextTickets;
+    cancelledAutoBetRef.current.delete(index);
     setTickets(nextTickets);
     showToast(`下注 ${index + 1} 已鎖定`, `${roleById[ticket.roleId].name} · ${money(ticket.amount)} 籌碼`, "good");
     tone(520);
     haptic(14);
+  }, [haptic, showToast, tone]);
+
+  const cancelBet = useCallback((index: number) => {
+    const result = cancelPendingBet({
+      tickets: ticketsRef.current,
+      balance: balanceRef.current,
+      index,
+      phase: phaseRef.current,
+      parlayMode: parlayModeRef.current,
+      now: performance.now(),
+      deadline: betDeadlineRef.current,
+    });
+    if (!result.refund) return;
+    result.cancelledIndexes.forEach((ticketIndex) => cancelledAutoBetRef.current.add(ticketIndex));
+    balanceRef.current = result.balance;
+    ticketsRef.current = result.tickets;
+    setBalance(result.balance);
+    setTickets(result.tickets);
+    const autoNextRound = result.cancelledIndexes.some((ticketIndex) => result.tickets[ticketIndex].autoBet);
+    showToast(
+      parlayModeRef.current ? "已取消整組串關" : `已取消下注 ${index + 1}`,
+      `退回 ${money(result.refund)} 籌碼${autoNextRound ? " · AUTO 下一局繼續" : ""}`,
+      "good",
+    );
+    tone(440, .1, "triangle");
+    haptic(12);
   }, [haptic, showToast, tone]);
 
   const cashOut = useCallback((index: number, at: number, automatic = false) => {
@@ -527,6 +558,7 @@ export default function GameClient() {
     const roundRoleIds = selectedRoundRoleIds(ticketsRef.current);
 
     if (parlayModeRef.current) {
+      if (!ticketsRef.current.some((ticket) => ticket.placed && ticket.status !== "cashed")) return;
       const settled = ticketsRef.current.map((ticket, ticketIndex) => {
         if (!ticket.enabled || !ticket.placed || ticket.status === "cashed") return ticket;
         const abilityRolls = showcaseModeRef.current
@@ -605,6 +637,8 @@ export default function GameClient() {
   }, [showToast, tone, triggerSkillFx]);
 
   const beginRound = useCallback(() => {
+    cancelledAutoBetRef.current.clear();
+    betDeadlineRef.current = 0;
     countdownTickRef.current = 8;
     setMultiplier(1);
     setCountdown(8);
@@ -698,7 +732,7 @@ export default function GameClient() {
     if (phase !== "betting") return;
     const timer = setTimeout(() => {
       ticketsRef.current.forEach((ticket, index) => {
-        if (ticket.enabled && ticket.autoBet && !ticket.placed) placeBet(index);
+        if (ticket.enabled && ticket.autoBet && !ticket.placed) placeBet(index, true);
       });
     }, 250);
     return () => clearTimeout(timer);
@@ -786,7 +820,7 @@ export default function GameClient() {
 
   const chooseRole = (ticketIndex: number, roleId: RoleId) => {
     const ticket = ticketsRef.current[ticketIndex];
-    if (phase !== "betting" || ticket.placed) return;
+    if (!canEditUnplacedTicket(ticket)) return;
     updateTicket(ticketIndex, (current) => ({
       ...current,
       roleId,
@@ -809,7 +843,7 @@ export default function GameClient() {
   };
 
   const changeStake = (ticketIndex: number, delta: number) => {
-    if (phase !== "betting" || ticketsRef.current[ticketIndex].placed) return;
+    if (!canEditUnplacedTicket(ticketsRef.current[ticketIndex])) return;
     updateTicket(ticketIndex, (ticket) => {
       const nextAmount = delta > 0 && ticket.amount < 50
         ? 50
@@ -824,20 +858,21 @@ export default function GameClient() {
   const toggleAutoBet = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
     const willEnable = !ticket.autoBet;
+    if (willEnable) cancelledAutoBetRef.current.delete(ticketIndex);
     updateTicket(ticketIndex, (current) => ({ ...current, autoBet: !current.autoBet }));
     tone(ticket.autoBet ? 410 : 590, .055, "triangle");
-    if (willEnable && phaseRef.current === "betting" && !ticket.placed) setTimeout(() => placeBet(ticketIndex), 0);
+    if (willEnable && phaseRef.current === "betting" && !ticket.placed) setTimeout(() => placeBet(ticketIndex, true), 0);
   };
 
   const toggleAutoCash = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
-    if (phase !== "betting" || ticket.placed || ticket.roleId === "tomato") return;
+    if (!canEditUnplacedTicket(ticket) || ticket.roleId === "tomato") return;
     updateTicket(ticketIndex, (current) => ({ ...current, autoCash: current.autoCash ? null : current.autoCashTarget }));
     tone(ticket.autoCash ? 410 : 590, .055, "triangle");
   };
 
   const changeAutoCashTarget = (ticketIndex: number, nextValue: number) => {
-    if (phase !== "betting" || ticketsRef.current[ticketIndex].placed) return;
+    if (!canEditUnplacedTicket(ticketsRef.current[ticketIndex])) return;
     if (!Number.isFinite(nextValue)) return;
     const target = Math.min(MAX_SETTLEMENT_MULTIPLIER, Math.max(1.01, Math.round(nextValue * 100) / 100));
     updateTicket(ticketIndex, (current) => ({
@@ -860,8 +895,10 @@ export default function GameClient() {
   };
 
   const ticketAction = (ticketIndex: number) => {
-    if (phase === "betting") placeBet(ticketIndex);
-    else if (phase === "running") cashOut(ticketIndex, multiplier);
+    if (phaseRef.current === "betting") {
+      if (ticketsRef.current[ticketIndex].placed) cancelBet(ticketIndex);
+      else placeBet(ticketIndex);
+    } else if (phaseRef.current === "running") cashOut(ticketIndex, multiplier);
   };
 
   const resetDemoBalance = () => {
@@ -876,7 +913,7 @@ export default function GameClient() {
 
   const ticketActionLabel = (ticket: Ticket) => {
     if (phase === "betting") return ticket.placed
-      ? parlayMode ? "PARLAY LOCKED" : "LOCKED"
+      ? parlayMode ? "取消串關" : "取消下注"
       : roundSpec ? parlayMode ? "BET BOTH" : "BET" : "PREPARING";
     if (phase === "crashed") {
       if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
@@ -897,7 +934,7 @@ export default function GameClient() {
   };
 
   const ticketActionDisabled = (ticket: Ticket) =>
-    (phase === "betting" && (ticket.placed || !roundSpec)) ||
+    (phase === "betting" && (!roundSpec || countdown <= 0)) ||
     phase === "crashed" ||
     (phase === "running" && ticket.status !== "running") ||
     (phase === "running" && ticket.roleId === "tomato");
@@ -1053,7 +1090,7 @@ export default function GameClient() {
         <section className="bet-zone">
           {tickets.map((ticket, ticketIndex) => {
             const role = roleById[ticket.roleId];
-            const canEdit = phase === "betting" && !ticket.placed && Boolean(roundSpec);
+            const canEdit = canEditUnplacedTicket(ticket);
             return (
               <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") ? "skill-triggered" : ""}`} key={ticketIndex}>
                 <div className="character-grid" aria-label={`下注 ${ticketIndex + 1} 選擇角色`}>
@@ -1086,7 +1123,7 @@ export default function GameClient() {
                 </div>
 
                 <button
-                  className={`bet-action ${phase === "running" && ticket.status === "running" ? "cash-mode" : ""}`}
+                  className={`bet-action ${phase === "running" && ticket.status === "running" ? "cash-mode" : ""} ${phase === "betting" && ticket.placed ? "cancel-mode" : ""}`}
                   disabled={ticketActionDisabled(ticket)}
                   onClick={() => ticketAction(ticketIndex)}
                 >
@@ -1166,7 +1203,7 @@ export default function GameClient() {
               <div className="sheet-handle" />
               <header><div><small>GAME MENU</small><h2 id="rules-title">遊戲選單</h2></div><button aria-label="關閉遊戲選單" onClick={() => setRulesOpen(false)}>×</button></header>
               <div className="rule-steps">
-                <article><b>01</b><div><strong>8 秒選角下注</strong><span>最多同時兩注，兩注角色與金額可不同。</span></div></article>
+                <article><b>01</b><div><strong>8 秒選角下注</strong><span>未下注的面板隨時可調整；開跑前可取消並退回籌碼，串關整組取消。</span></div></article>
                 <article><b>02</b><div><strong>倍率持續成長</strong><span>角色越跑越遠，派彩由 1.00× 不斷上升。</span></div></article>
                 <article><b>03</b><div><strong>被抓前 Cash Out</strong><span>成功取得下注額 × 當下倍率；爆掉則失去未結算部位。</span></div></article>
               </div>
