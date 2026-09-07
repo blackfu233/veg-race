@@ -93,7 +93,9 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /21 種雙注連攜/);
-  assert.match(source, /待兩注下注/);
+  assert.match(source, /連攜啟動！/);
+  assert.match(source, /className="duo-activation"/);
+  assert.match(source, /className="duo-bridge"/);
   assert.match(source, /duoDescription\.shortSummary/);
   assert.doesNotMatch(source, /combo-copy|combo-badge/);
   assert.doesNotMatch(source, /同場串關|BET BOTH|兩關相乘/);

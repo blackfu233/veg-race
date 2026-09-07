@@ -920,7 +920,15 @@ export default function GameClient() {
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
           {phase === "betting" && (
             <div className={`duo-preview stage-duo-preview ${duoActive ? "is-active" : ""}`} aria-label="目前雙注連攜">
-              <strong><span>🔗 {duoDescription.title}</span><b>{duoActive ? "已啟動" : "待兩注下注"}</b></strong>
+              <strong><span>🔗 {duoDescription.title}</span><b>{duoActive ? "連攜中" : "選角預覽"}</b></strong>
+              <small>{duoDescription.shortSummary}</small>
+            </div>
+          )}
+          {phase === "betting" && duoActive && (
+            <div className="duo-activation" role="status" aria-live="polite">
+              <span>DUO LINK</span>
+              <strong>連攜啟動！</strong>
+              <b>{duoDescription.title}</b>
               <small>{duoDescription.shortSummary}</small>
             </div>
           )}
@@ -928,6 +936,7 @@ export default function GameClient() {
         </section>
 
         <section className="bet-zone">
+          {duoActive && phase === "betting" && <div className="duo-bridge" aria-label={`${duoDescription.title}連攜中`}><i>🔗</i><strong>{duoDescription.title}</strong><span>連攜中</span></div>}
           {tickets.map((ticket, ticketIndex) => {
             const role = roleById[ticket.roleId];
             const canEdit = canEditUnplacedTicket(ticket);
