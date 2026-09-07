@@ -6,6 +6,7 @@ import {
   calibrateRoundBaseRtp,
   calibrateSupportRoundBaseRtp,
   crashPointFromUnit,
+  createVisualNearMiss,
   describeDuoPair,
   expectedCrashPayout,
   expectedRoundReturn,
@@ -152,9 +153,28 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.doesNotMatch(source, /Math\.random/);
   assert.match(source, /abilityRolls/);
   assert.match(source, /digestHex\(seed \+ ":crash"\)/);
+  assert.match(source, /digestHex\(seed \+ ":near-miss"\)/);
   assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "mushroom", "target"\]/);
   assert.match(source, /digestHex\(`\$\{seed\}:ticket:\$\{index\}:\$\{key\}`\)/);
   assert.match(source, /calibrateRoundBaseRtp\(wagers\)/);
+});
+
+test("keeps near miss visual-only and bounded after every wager is settled", async () => {
+  const close = createVisualNearMiss(2, 2.08, 0.5);
+  assert.equal(close.active, true);
+  assert.equal(close.extended, true);
+  assert.equal(close.naturalEnd, 2.08);
+  assert.ok(close.visualEnd >= 2.08 && close.visualEnd <= 2.28);
+  const far = createVisualNearMiss(2, 3, 0.5);
+  assert.equal(far.extended, false);
+  assert.equal(far.visualEnd, 3);
+
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  assert.match(source, /activeTickets\.some\(\(ticket\) => ticket\.status !== "cashed"/);
+  assert.match(source, /roundEndPoint = safeRunRef\.current\.active \? safeRunRef\.current\.visualEnd : crashPoint/);
+  assert.match(source, /setHistory\(\(current\) => \[crashPoint,/);
+  assert.match(source, /settleCrash\(crashPoint\)/);
+  assert.match(source, /Near Miss 只會在所有下注都已完成結算後/);
 });
 
 test("keeps every duo on one shared crash without parlay settlement", async () => {
@@ -173,19 +193,19 @@ test("awards support only to the main ticket after both bets cash out", () => {
     { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
     { roleId: "potato", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
   ], "ketchup");
-  assert.deepEqual(ketchup.extras, [30, 0]);
-  assert.equal(ketchup.total, 30);
-  assert.match(ketchup.note, /主角獲利＋15%/);
+  assert.deepEqual(ketchup.extras, [40, 0]);
+  assert.equal(ketchup.total, 40);
+  assert.match(ketchup.note, /主角獲利＋20%/);
 
   const mayonnaise = settleSupportLink([
-    { roleId: "potato", stake: 100, cashAt: 1.5, payout: 150, status: "cashed" },
+    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
     { roleId: "potato", stake: 100, cashAt: 1.8, payout: 180, status: "cashed" },
   ], "mayonnaise");
-  assert.deepEqual(mayonnaise.extras, [12.5, 0]);
+  assert.deepEqual(mayonnaise.extras, [24, 0]);
   assert.equal(settleSupportLink([
+    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
     { roleId: "potato", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
-    { roleId: "potato", stake: 100, cashAt: 1.8, payout: 180, status: "cashed" },
-  ], "mayonnaise").total, 0, "the early support requires both cashouts before 2x");
+  ], "mayonnaise").total, 0, "the early support requires its own cashout before 2x");
   assert.equal(settleSupportLink([
     { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed", linkAwarded: true },
     { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
@@ -323,6 +343,39 @@ test("calibrates all 16 main-and-support combinations to 96% RTP", () => {
     }
   }
   assert.equal(combinationCount, 16);
+});
+
+test("holds 96% across an exhaustive target and stake matrix in both modes", () => {
+  const targets = [1.2, 1.5, 1.99, 2, 3, 4, 4.99, 5, 6, 10, 25, 50, 99];
+  const stakePairs = [[1, 1], [1, 3], [3, 1], [10, 37]];
+  let duoCases = 0;
+  let supportCases = 0;
+  for (let first = 0; first < roleIds.length; first += 1) {
+    for (let second = first; second < roleIds.length; second += 1) {
+      for (const firstTarget of targets) for (const secondTarget of targets) for (const [firstStake, secondStake] of stakePairs) {
+        const wagers = [
+          { roleId: roleIds[first], stake: firstStake, target: firstTarget },
+          { roleId: roleIds[second], stake: secondStake, target: secondTarget },
+        ];
+        const baseRtp = calibrateRoundBaseRtp(wagers);
+        const rtp = expectedRoundReturn(wagers, baseRtp) / (firstStake + secondStake);
+        assert.ok(Math.abs(rtp - TARGET_RTP) < 1e-9);
+        duoCases += 1;
+      }
+    }
+  }
+  for (const roleId of mainRoleIds) for (const supportId of supportIds) {
+    for (const mainTarget of targets) for (const supportTarget of targets) for (const [mainStake, supportStake] of stakePairs) {
+      const mainWager = { roleId, stake: mainStake, target: mainTarget };
+      const supportWager = { stake: supportStake, target: supportTarget };
+      const baseRtp = calibrateSupportRoundBaseRtp(mainWager, supportWager, supportId);
+      const rtp = expectedSupportRoundReturn(mainWager, supportWager, supportId, baseRtp) / (mainStake + supportStake);
+      assert.ok(Math.abs(rtp - TARGET_RTP) < 1e-9);
+      supportCases += 1;
+    }
+  }
+  assert.equal(duoCases, 14196);
+  assert.equal(supportCases, 10816);
 });
 
 test("defines a visible description for all 21 unordered role pairs", () => {

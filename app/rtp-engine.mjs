@@ -20,8 +20,8 @@ export const ROLE_NAMES = Object.freeze({
 });
 
 export const SUPPORT_MATH = Object.freeze({
-  ketchup: { profitBonus: 0.15, supportMin: 1.01, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
-  mayonnaise: { profitBonus: 0.25, supportMin: 1.01, supportMax: 2, mainMin: 1.01, mainMax: 2 },
+  ketchup: { profitBonus: 0.2, supportMin: 2, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
+  mayonnaise: { profitBonus: 0.12, supportMin: 1.01, supportMax: 2, mainMin: 1.01, mainMax: 99.999 },
   mustard: { profitBonus: 0.35, supportMin: 3, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
   wasabi: { profitBonus: 0.6, supportMin: 5, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
 });
@@ -166,6 +166,21 @@ export function crashPointFromUnit(unit, baseRtp = TARGET_RTP) {
 export function survivalAt(multiplier, baseRtp = TARGET_RTP) {
   if (!Number.isFinite(multiplier) || multiplier < 1 || multiplier >= 100) return 0;
   return Math.min(1, Math.max(0, baseRtp) / multiplier);
+}
+
+export function createVisualNearMiss(cashAt, naturalEnd, unit) {
+  const safeCashAt = safeTarget(cashAt);
+  const safeNaturalEnd = safeTarget(naturalEnd);
+  const canExtend = safeNaturalEnd <= safeCashAt * 1.12;
+  const gentleTail = safeCashAt * (1.08 + clampUnit(unit) * 0.06);
+  const visualEnd = canExtend ? Math.min(99.99, Math.max(safeNaturalEnd, gentleTail)) : safeNaturalEnd;
+  return {
+    active: true,
+    extended: visualEnd > safeNaturalEnd + 0.005,
+    cashAt: safeCashAt,
+    naturalEnd: safeNaturalEnd,
+    visualEnd,
+  };
 }
 
 export function settleSuccessfulCashout(roleId, stake, multiplier, rolls, roundRoleIds = [roleId]) {

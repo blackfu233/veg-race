@@ -10,6 +10,7 @@ export type DuoTicket = { roleId: RtpRoleId; stake: number; cashAt: number | nul
 export type DuoDescription = { key: string; title: string; badge: string; shortSummary: string; summary: string; roleDetails: string[] };
 export type DuoSettlement = { extras: number[]; total: number; note: string; triggered: boolean; description: DuoDescription | null };
 export type SupportWager = { stake: number; target: number };
+export type VisualNearMiss = { active: true; extended: boolean; cashAt: number; naturalEnd: number; visualEnd: number };
 
 export const ROLE_MATH: Readonly<Record<RtpRoleId, Readonly<Record<string, number>>>>;
 export const ROLE_NAMES: Readonly<Record<RtpRoleId, string>>;
@@ -18,6 +19,7 @@ export const SUPPORT_NAMES: Readonly<Record<SupportId, string>>;
 export function describeDuoPair(roleIds: RtpRoleId[]): DuoDescription;
 export function crashPointFromUnit(unit: number, baseRtp?: number): number;
 export function survivalAt(multiplier: number, baseRtp?: number): number;
+export function createVisualNearMiss(cashAt: number, naturalEnd: number, unit: number): VisualNearMiss;
 export function settleSuccessfulCashout(roleId: RtpRoleId, stake: number, multiplier: number, rolls: AbilityRolls, roundRoleIds?: RtpRoleId[]): SettlementResult;
 export function settleCrashRole(): SettlementResult;
 export function settleDuoLink(tickets: DuoTicket[]): DuoSettlement;

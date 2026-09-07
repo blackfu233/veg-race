@@ -181,6 +181,10 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .road-runner.status-cashed { opacity:.18; filter:saturate(.55); } .road-runner.status-lost { filter:grayscale(.55) drop-shadow(0 8px 6px rgba(0,0,0,.35)); }
 .phase-running .road-runner.status-cashed { opacity:1; animation:cashoutEscape .58s cubic-bezier(.18,.77,.2,1) forwards; }
 .phase-running .road-runner.status-cashed::before { left:50%; bottom:22px; width:66px; height:28px; border:4px solid rgba(124,232,94,.86); border-radius:50%; background:transparent; box-shadow:0 0 0 6px rgba(255,236,104,.2); animation:cashoutRing .5s ease-out forwards; }
+.phase-running .road-runner.status-cashed.cashout-lap { opacity:.82; filter:saturate(.82) brightness(1.04) drop-shadow(0 8px 5px rgba(66,41,19,.25)); animation:runnerDash .368s ease-in-out infinite; }
+.phase-running .road-runner.status-cashed.cashout-lap.runner-2 { animation-delay:-.184s; }
+.phase-running .road-runner.status-cashed.cashout-lap>b { color:#eaffd9; background:linear-gradient(#55b65a,#2f8240); }
+.phase-running .road-runner.status-cashed.cashout-lap>b::after { content:"✓"; position:absolute; right:-5px; top:-7px; width:14px; height:14px; display:grid; place-items:center; color:#26733a; border:1px solid #77bf69; border-radius:50%; background:#f3ffe6; font-size:9px; }
 .phase-crashed .road-runner.status-cashed { opacity:0; }
 .phase-crashed .road-runner.status-lost { animation:caughtImpact .62s ease-out forwards; }
 .capture-overlay { position:absolute; z-index:30; inset:0; overflow:hidden; pointer-events:none; background:rgba(72,45,22,.1); animation:sceneImpact .72s ease-out both; }
@@ -219,6 +223,9 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .signal-indicator i { width:4px; border-radius:2px 2px 0 0; background:#2ee653; animation:signalPulse .8s ease-in-out infinite alternate; }
 .signal-indicator i:first-child { height:7px; } .signal-indicator i:nth-child(2) { height:12px; animation-delay:-.22s; } .signal-indicator i:last-child { height:17px; animation-delay:-.44s; }
 .signal-indicator small { font-size:6px; font-weight:900; letter-spacing:.05em; }
+.near-miss-cue { position:absolute; z-index:26; left:50%; bottom:53px; min-width:166px; padding:5px 12px 6px; display:grid; justify-items:center; transform:translateX(-50%); color:#31643d; border:2px solid rgba(243,255,202,.94); border-radius:14px; background:linear-gradient(180deg,rgba(238,255,211,.94),rgba(176,232,142,.93)); box-shadow:0 4px 12px rgba(33,90,40,.22),inset 0 1px white; animation:nearMissCueIn .32s ease-out both; }
+.near-miss-cue b { font-size:12px; letter-spacing:.12em; line-height:1; }
+.near-miss-cue small { margin-top:2px; font-size:8px; font-weight:850; }
 .fair-link { position:absolute; z-index:14; right:9px; bottom:13px; border:1px solid rgba(255,255,255,.34); border-radius:11px; padding:4px 7px; color:white; background:rgba(35,105,52,.82); box-shadow:0 2px 5px rgba(31,70,38,.18); font-size:9px; font-weight:850; transition:transform .12s,background .12s; }
 .fair-link:active { transform:translateY(1px); background:rgba(29,90,44,.92); }
 
@@ -345,6 +352,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .ability-sharing-note { margin-top:10px; padding:9px 11px; display:grid; gap:2px; border:1px solid #b7d7ae; border-radius:12px; color:#41633f; background:linear-gradient(135deg,#eff9e9,#fff9e8); }
 .ability-sharing-note strong { font-size:12px; }
 .ability-sharing-note span { font-size:10px; line-height:1.35; font-weight:720; }
+.near-miss-note { border-color:#d6c37e; color:#705b2f; background:linear-gradient(135deg,#fffbe2,#eef9df); }
 .demo-note { margin-top:11px; padding:10px; color:#966b32; background:#fff0c6; border-radius:11px; font-size:12px; }
 .menu-actions { margin-top:13px; display:grid; gap:7px; }
 .menu-actions button { width:100%; min-height:43px; padding:9px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #cddfbd; border-radius:12px; color:#5c4a36; background:#f1f8e9; font-weight:850; }
@@ -474,9 +482,10 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 @keyframes supportBottleServe { 0% { opacity:0; transform:translate(74px,31px) rotate(25deg) scale(.45); } 55% { opacity:1; transform:translate(-10px,-6px) rotate(-8deg) scale(1.12); } 78% { transform:translate(2px,0) rotate(3deg) scale(.97); } 100% { opacity:1; transform:none; } }
 @keyframes supportSplashBloom { from { opacity:0; transform:scale(.18); } 55% { opacity:.95; transform:scale(1.14); } to { opacity:.55; transform:scale(1); } }
 @keyframes supportDropBurst { 0% { opacity:0; transform:translate(0,0) scale(.2); } 34% { opacity:1; } 100% { opacity:0; transform:translate(var(--drop-x),var(--drop-y)) scale(1.08); } }
+@keyframes nearMissCueIn { from { opacity:0; transform:translate(-50%,8px) scale(.9); } to { opacity:1; transform:translateX(-50%) scale(1); } }
 
 @media (prefers-reduced-motion:reduce) {
-  .phase-running .race-stage,.phase-running .road-flow i,.phase-running .speed-dust i,.phase-betting .road-runner,.phase-running .road-runner,.phase-running .road-runner::before,.phase-betting .round-display span,.phase-running .round-display span,.is-chase-close .race-stage::after,.is-chase-close .vertical-meters,.phase-crashed .round-display,.phase-crashed .history-strip span:first-child,.history-strip .legendary,.showcase-badge,.phase-running .road-runner.status-cashed,.phase-running .road-runner.status-cashed::before,.phase-running .fox-pursuer,.phase-running .fox-pursuer.fox-retired,.signal-indicator i,.bet-card.skill-triggered,.bet-action.cash-mode,.game-toast,.capture-overlay,.result-ribbon,.result-ribbon .result-cashed,.result-ribbon .result-cashed strong,.result-ribbon .result-cashed::before,.result-ribbon .result-cashed::after,.impact-ring,.impact-flash,.impact-smoke,.impact-smoke i,.impact-sparks i,.phase-crashed .road-runner.status-lost,.phase-crashed .fox-pursuer,.fox-pursuer::before,.skill-fx,.skill-fx *,.support-fx,.support-fx *,.support-runner-art,.support-drops i,.road-runner.skill-active .canvas-runner,.duo-activation,.duo-activation::before,.duo-bridge { animation:none; }
+  .phase-running .race-stage,.phase-running .road-flow i,.phase-running .speed-dust i,.phase-betting .road-runner,.phase-running .road-runner,.phase-running .road-runner::before,.phase-betting .round-display span,.phase-running .round-display span,.is-chase-close .race-stage::after,.is-chase-close .vertical-meters,.phase-crashed .round-display,.phase-crashed .history-strip span:first-child,.history-strip .legendary,.showcase-badge,.phase-running .road-runner.status-cashed,.phase-running .road-runner.status-cashed::before,.phase-running .fox-pursuer,.phase-running .fox-pursuer.fox-retired,.signal-indicator i,.bet-card.skill-triggered,.bet-action.cash-mode,.game-toast,.near-miss-cue,.capture-overlay,.result-ribbon,.result-ribbon .result-cashed,.result-ribbon .result-cashed strong,.result-ribbon .result-cashed::before,.result-ribbon .result-cashed::after,.impact-ring,.impact-flash,.impact-smoke,.impact-smoke i,.impact-sparks i,.phase-crashed .road-runner.status-lost,.phase-crashed .fox-pursuer,.fox-pursuer::before,.skill-fx,.skill-fx *,.support-fx,.support-fx *,.support-runner-art,.support-drops i,.road-runner.skill-active .canvas-runner,.duo-activation,.duo-activation::before,.duo-bridge { animation:none; }
   .phase-running .road-runner.status-cashed,.phase-running .fox-pursuer.fox-retired { opacity:0; }
 }
 

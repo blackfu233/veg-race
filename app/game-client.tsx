@@ -8,6 +8,7 @@ import {
   calibrateRoundBaseRtp,
   calibrateSupportRoundBaseRtp,
   crashPointFromUnit,
+  createVisualNearMiss,
   describeDuoPair,
   MAX_SETTLEMENT_MULTIPLIER,
   settleDuoLink,
@@ -60,6 +61,14 @@ type SupportFx = {
   label: string;
 };
 
+type SafeRun = {
+  active: boolean;
+  extended: boolean;
+  cashAt: number;
+  naturalEnd: number;
+  visualEnd: number;
+};
+
 type Ticket = {
   enabled: boolean;
   amount: number;
@@ -83,8 +92,11 @@ type RoundSpec = {
   crashUnit: number;
   baseRtp: number;
   crashPoint: number;
+  nearMissUnit: number;
   abilityRolls: AbilityRolls[];
 };
+
+const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, naturalEnd: 0, visualEnd: 0 };
 
 const roles: Role[] = [
   { id: "potato", name: "馬鈴薯", short: "2× 前成功：28% 派彩×2", detail: "2× 前成功 → 28% 機率派彩×2", accent: "#f0b55b" },
@@ -98,8 +110,8 @@ const roles: Role[] = [
 const mainRoleIds: RoleId[] = ["potato", "chili", "pumpkin", "tomato"];
 const mainRoles = roles.filter((role) => mainRoleIds.includes(role.id));
 const supports: Support[] = [
-  { id: "ketchup", name: "番茄醬", short: "雙注成功：主角獲利＋15%", detail: "兩注都成功 → 主角獲利＋15%", accent: "#ed4a42" },
-  { id: "mayonnaise", name: "美乃滋", short: "兩注2×前成功：主角獲利＋25%", detail: "兩注都在 2× 前成功 → 主角獲利＋25%", accent: "#e5b45c" },
+  { id: "ketchup", name: "番茄醬", short: "支援2×後成功：主角獲利＋20%", detail: "支援注 2× 後成功 → 主角獲利＋20%", accent: "#ed4a42" },
+  { id: "mayonnaise", name: "美乃滋", short: "支援2×前成功：主角獲利＋12%", detail: "支援注 2× 前成功 → 主角獲利＋12%", accent: "#e5b45c" },
   { id: "mustard", name: "芥末醬", short: "支援3×後成功：主角獲利＋35%", detail: "支援注 3× 後成功 → 主角獲利＋35%", accent: "#d8a91b" },
   { id: "wasabi", name: "山葵醬", short: "支援5×後成功：主角獲利＋60%", detail: "支援注 5× 後成功 → 主角獲利＋60%", accent: "#55a84f" },
 ];
@@ -180,12 +192,14 @@ async function digestHex(value: string) {
 async function makeRoundSpec(): Promise<RoundSpec> {
   const seed = crypto.randomUUID();
   const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "mushroom", "target"] as const;
-  const [commitment, crashHash, ...abilityHashes] = await Promise.all([
+  const [commitment, crashHash, nearMissHash, ...abilityHashes] = await Promise.all([
     digestHex(seed),
     digestHex(seed + ":crash"),
+    digestHex(seed + ":near-miss"),
     ...[0, 1].flatMap((index) => abilityKeys.map((key) => digestHex(`${seed}:ticket:${index}:${key}`))),
   ]);
   const crashUnit = Number.parseInt(crashHash.slice(0, 13), 16) / 0x10000000000000;
+  const nearMissUnit = Number.parseInt(nearMissHash.slice(0, 13), 16) / 0x10000000000000;
   const abilityRolls = [0, 1].map((index) => Object.fromEntries(abilityKeys.map((key, keyIndex) => [
     key,
     Number.parseInt(abilityHashes[index * abilityKeys.length + keyIndex].slice(0, 13), 16) / 0x10000000000000,
@@ -196,6 +210,7 @@ async function makeRoundSpec(): Promise<RoundSpec> {
     crashUnit,
     baseRtp: TARGET_RTP,
     crashPoint: crashPointFromUnit(crashUnit),
+    nearMissUnit,
     abilityRolls,
   };
 }
@@ -275,6 +290,7 @@ export default function GameClient() {
   const [toast, setToast] = useState<{ title: string; body: string; tone: "good" | "bad" | "gold" } | null>(null);
   const [skillEffects, setSkillEffects] = useState<SkillFx[]>([]);
   const [supportEffects, setSupportEffects] = useState<SupportFx[]>([]);
+  const [safeRun, setSafeRun] = useState<SafeRun>(idleSafeRun);
 
   const ticketsRef = useRef(tickets);
   const balanceRef = useRef(balance);
@@ -283,6 +299,7 @@ export default function GameClient() {
   const showcaseModeRef = useRef(showcaseMode);
   const gameModeRef = useRef<GameMode>(gameMode);
   const supportIdRef = useRef<SupportId>(supportId);
+  const safeRunRef = useRef<SafeRun>(idleSafeRun);
   const betDeadlineRef = useRef(0);
   const cancelledAutoBetRef = useRef(new Set<number>());
   const runStartRef = useRef(0);
@@ -299,6 +316,7 @@ export default function GameClient() {
   useEffect(() => { showcaseModeRef.current = showcaseMode; }, [showcaseMode]);
   useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
   useEffect(() => { supportIdRef.current = supportId; }, [supportId]);
+  useEffect(() => { safeRunRef.current = safeRun; }, [safeRun]);
 
   useEffect(() => {
     if (!rulesOpen && !fairOpen) return;
@@ -523,6 +541,18 @@ export default function GameClient() {
     haptic(12);
   }, [haptic, showToast, tone]);
 
+  const activateSafeRun = useCallback((settledTickets: Ticket[]) => {
+    if (safeRunRef.current.active) return;
+    const activeTickets = settledTickets.filter((ticket) => ticket.enabled && ticket.placed);
+    if (!activeTickets.length || activeTickets.some((ticket) => ticket.status !== "cashed" || !ticket.cashAt)) return;
+    const spec = roundSpecRef.current;
+    if (!spec) return;
+    const cashAt = Math.max(...activeTickets.map((ticket) => ticket.cashAt ?? 1));
+    const nextSafeRun = createVisualNearMiss(cashAt, spec.crashPoint, spec.nearMissUnit);
+    safeRunRef.current = nextSafeRun;
+    setSafeRun(nextSafeRun);
+  }, []);
+
   const cashOut = useCallback((index: number, at: number, automatic = false) => {
     if (phaseRef.current !== "running") return;
     const currentTickets = ticketsRef.current;
@@ -620,6 +650,7 @@ export default function GameClient() {
     ticketsRef.current = next;
     setBalance(nextBalance);
     setTickets(next);
+    activateSafeRun(next);
 
     if (linkSettlement.triggered && gameModeRef.current === "support") showToast(`🥫 ${supportById[supportIdRef.current].name}支援成功！`, `主角追加 +${money(linkSettlement.total)}`, "gold");
     else if (linkSettlement.triggered) showToast(`🔗 ${linkSettlement.description?.title} 連攜成功！`, `追加獎勵 +${money(linkSettlement.total)}`, "gold");
@@ -627,7 +658,7 @@ export default function GameClient() {
     else showToast(`下注 ${index + 1} Cash Out`, `${at.toFixed(2)}× · +${money(paid)}`, "good");
     tone(linkSettlement.triggered ? 1080 : skillTone === "gold" ? 930 : 720, linkSettlement.triggered ? .2 : .13, linkSettlement.triggered ? "triangle" : "sine");
     haptic(linkSettlement.triggered ? [20, 22, 20, 22, 34] : skillTone === "gold" ? [18, 28, 24] : 18);
-  }, [haptic, showToast, tone, triggerSkillFx, triggerSupportFx]);
+  }, [activateSafeRun, haptic, showToast, tone, triggerSkillFx, triggerSupportFx]);
 
   const settleCrash = useCallback((crashPoint: number) => {
     const settled = ticketsRef.current.map((ticket) => {
@@ -652,6 +683,8 @@ export default function GameClient() {
     setRoundNo((value) => value + 1);
     setSkillEffects([]);
     setSupportEffects([]);
+    safeRunRef.current = idleSafeRun;
+    setSafeRun(idleSafeRun);
     const nextTickets = ticketsRef.current.map((ticket) => ({
       ...ticket,
       status: "idle" as const,
@@ -770,8 +803,9 @@ export default function GameClient() {
         const target = usesTomatoAuto ? ticket.autoRoleTarget : ticket.autoCash;
         if (target && target < crashPoint && nextMultiplier >= target) cashOut(index, target, true);
       });
-      if (nextMultiplier >= crashPoint) {
-        setMultiplier(crashPoint);
+      const roundEndPoint = safeRunRef.current.active ? safeRunRef.current.visualEnd : crashPoint;
+      if (nextMultiplier >= roundEndPoint) {
+        setMultiplier(roundEndPoint);
         if (roundSpecRef.current) setLastReveal(roundSpecRef.current);
         phaseRef.current = "crashed";
         setPhase("crashed");
@@ -812,13 +846,16 @@ export default function GameClient() {
       if (supportActive) return `${selectedSupport.name}已備妥，準備支援主角`;
       return placedCount ? `${placedCount} 注已鎖定，準備開跑` : "選擇角色並在倒數前下注";
     }
-    if (phase === "crashed") return `爆點 ${multiplier.toFixed(2)}×`;
+    if (phase === "crashed") return safeRun.active
+      ? `結算爆點 ${safeRun.naturalEnd.toFixed(2)}× · Cash Out 後為演出距離`
+      : `爆點 ${multiplier.toFixed(2)}×`;
     if (!placedCount) return "本局觀戰中";
+    if (safeRun.active) return safeRun.extended ? "已全數 Cash Out · Near Miss 安全領跑" : "已全數 Cash Out · 安全領跑";
     if (!runningCount) return "本局已完成結算";
     if (duoActive) return `${duoDescription.title} · 完成兩邊條件拿加成`;
     if (supportActive) return `${selectedSupport.name} · 兩注成功就支援主角`;
     return "在收割者追上前 Cash Out！";
-  }, [duoActive, duoDescription.title, multiplier, phase, placedCount, runningCount, selectedSupport.name, supportActive]);
+  }, [duoActive, duoDescription.title, multiplier, phase, placedCount, runningCount, safeRun, selectedSupport.name, supportActive]);
 
   const stageProgress = phase === "betting"
     ? Math.max(4, ((8 - countdown) / 8) * 100)
@@ -826,7 +863,7 @@ export default function GameClient() {
   // This is an intentionally non-predictive show meter. It only follows visible
   // run time and never reads the committed crash point.
   const visualRunTime = Math.log(Math.max(1, multiplier)) * 5.2;
-  const chasePressure = phase === "running"
+  let chasePressure = phase === "running"
     ? Math.min(84, Math.max(12,
         43
         + Math.sin(visualRunTime * 1.7) * 20
@@ -834,6 +871,11 @@ export default function GameClient() {
         + Math.min(9, visualRunTime * .42),
       ))
     : phase === "crashed" ? 100 : 0;
+  if (phase === "running" && safeRun.extended) {
+    const tailSpan = Math.max(.01, safeRun.visualEnd - safeRun.cashAt);
+    const tailProgress = Math.min(1, Math.max(0, (multiplier - safeRun.cashAt) / tailSpan));
+    chasePressure = Math.min(92, Math.max(chasePressure, 68 + tailProgress * 19 + Math.sin(visualRunTime * 4.1) * 4));
+  }
   const meterProgress = chasePressure;
   const worldSpeed = Math.max(.34, 1.05 - Math.log(Math.max(1, multiplier)) * .16);
   const runnerScale = phase === "betting" ? 1 : Math.max(.5, 1 - stageProgress * .0052);
@@ -950,7 +992,7 @@ export default function GameClient() {
   return (
     <main className="game-shell">
       <section
-        className={`game-phone phase-${phase} mode-${gameMode} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${linkedActive ? "duo-active" : ""} ${supportActive ? "support-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
+        className={`game-phone phase-${phase} mode-${gameMode} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${linkedActive ? "duo-active" : ""} ${supportActive ? "support-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
         aria-label="蔬菜跑跑 Crash Game Demo"
       >
         <section
@@ -974,7 +1016,7 @@ export default function GameClient() {
           </div>
 
           <div className="round-display">
-            <strong>{phase === "betting" ? "Betting..." : phase === "running" ? "Run!" : caughtCount ? "Caught!" : "Round End"}</strong>
+            <strong>{phase === "betting" ? "Betting..." : phase === "running" ? safeRun.active ? "Safe Run!" : "Run!" : caughtCount ? "Caught!" : safeRun.extended ? "Near Miss!" : "Round End"}</strong>
             <span>{phase === "betting" ? Math.ceil(countdown) : `${multiplier.toFixed(2)}×`}</span>
             <small>{phase === "betting" ? roundSpec ? `ROUND ${roundNo} · ${placedCount}/2 BETS` : "PREPARING FAIR ROUND" : stageMessage}</small>
           </div>
@@ -998,7 +1040,7 @@ export default function GameClient() {
               const laneX = 50 + (laneOrigin - 50) * (1 - progress / 240);
               return (
                 <div
-                  className={`road-runner runner-${index + 1} status-${ticket.status} ${gameMode === "support" && index === 1 ? "is-support-runner" : ""} ${skillEffects.some((effect) => effect.ticketIndex === index) || (index === 0 && supportEffects.length) ? "skill-active" : ""}`}
+                  className={`road-runner runner-${index + 1} status-${ticket.status} ${phase === "running" && ticket.status === "cashed" ? "cashout-lap" : ""} ${gameMode === "support" && index === 1 ? "is-support-runner" : ""} ${skillEffects.some((effect) => effect.ticketIndex === index) || (index === 0 && supportEffects.length) ? "skill-active" : ""}`}
                   style={{
                     "--runner-progress": progress,
                     "--runner-scale": runnerScale,
@@ -1041,7 +1083,7 @@ export default function GameClient() {
                 const foxX = 50 + laneWave * .2;
                 return (
                   <div
-                    className={`fox-pursuer fox-shared ${phase === "running" && !hasUnfinishedTicket ? "fox-retired" : ""}`}
+                    className={`fox-pursuer fox-shared ${phase === "running" && !hasUnfinishedTicket && !safeRun.active ? "fox-retired" : ""}`}
                     style={{
                       "--chase-pressure": foxPressure,
                       "--fox-opacity": phase === "crashed" ? 1 : Math.min(1, .7 + foxPressure / 380),
@@ -1079,6 +1121,9 @@ export default function GameClient() {
                 </span>
               ))}
             </div>
+          )}
+          {phase === "running" && safeRun.extended && (
+            <div className="near-miss-cue" role="status" aria-live="polite"><b>NEAR MISS</b><small>已完成結算 · 安全演出</small></div>
           )}
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
           {phase === "betting" && gameMode === "duo" && (
@@ -1278,6 +1323,10 @@ export default function GameClient() {
                   ? "上方是主角、下方是醬料支援。兩注共用同一爆點並可各自 Cash Out；兩注都成功且達成醬料條件，主角再拿額外獲利。"
                   : "兩注都下注後自動啟動。每注先獨立派彩；兩邊再達成畫面所寫條件，就追加連攜獎勵。任一邊失敗，不會扣掉另一邊已拿到的獎金。"}</span>
               </div>
+              <div className="ability-sharing-note near-miss-note">
+                <strong>🎯 自然 Near Miss</strong>
+                <span>已 Cash Out 的角色會繼續跑到本局結束；只有全部下注都已結算、而且原爆點就在附近時，才增加一小段安全追逐演出。未結算的下注絕不延後爆點。</span>
+              </div>
               <div className="menu-actions">
                 <button
                   className={`showcase-control ${showcaseMode ? "on" : ""}`}
@@ -1319,8 +1368,8 @@ export default function GameClient() {
               <span className="field-label">本局玩法／組合 VI 曲線</span>
               <code>{phase === "betting" ? "下注鎖定後計算" : `${gameMode === "support" ? `${roleById[tickets[0].roleId].name}＋${selectedSupport.name}` : duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → 含能力後目標 ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
-              <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls</code>
-              <p>開局先承諾 Seed 與爆點亂數；下注鎖定後，再依目前玩法、角色組合、投注比例與設定倍率，將同一亂數映射到對應 VI 爆點曲線。兩注共用同一爆點、各自 Cash Out；角色與支援能力只會加成或不觸發。整體長期理論 RTP 目標為 {(TARGET_RTP * 100).toFixed(0)}%，不依玩家歷史輸贏動態調整。手動改變兌現時機會改變該策略的實際回報。</p>
+              <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + visual near-miss unit</code>
+              <p>開局先承諾 Seed、爆點亂數與演出亂數；下注鎖定後，再依目前玩法、角色組合、投注比例與設定倍率，將同一爆點亂數映射到對應 VI 曲線。兩注共用同一結算爆點、各自 Cash Out；角色與支援能力只會加成或不觸發。Near Miss 只會在所有下注都已完成結算後延長少量畫面演出，不參與派彩、爆點紀錄或 RTP 計算。正常模式長期理論 RTP 目標為 {(TARGET_RTP * 100).toFixed(0)}%，不依玩家歷史輸贏動態調整；手動改變兌現時機會改變該策略的實際回報。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>
