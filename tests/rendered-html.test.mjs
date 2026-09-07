@@ -93,7 +93,9 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /21 種雙注連攜/);
-  assert.match(source, /連攜已啟動/);
+  assert.match(source, /待兩注下注/);
+  assert.match(source, /duoDescription\.shortSummary/);
+  assert.doesNotMatch(source, /combo-copy|combo-badge/);
   assert.doesNotMatch(source, /同場串關|BET BOTH|兩關相乘/);
   assert.doesNotMatch(source, /雙注共享|本注限定/);
 });
@@ -106,6 +108,11 @@ test("locks the viewport and keeps touch controls zoom-free", async () => {
   assert.match(styles, /touch-action:manipulation/);
   assert.match(styles, /auto-cash-setting input \{[^}]*font-size:16px/);
   assert.match(styles, /character-grid \{[^}]*repeat\(3/);
+  assert.match(styles, /game-phone \{[^}]*height:min\(100dvh,905px\)/);
+  assert.match(styles, /grid-template-rows:var\(--stage-height\) minmax\(0,1fr\) var\(--footer-height\)/);
+  assert.match(styles, /race-stage \{[^}]*height:100%; min-height:0/);
+  assert.match(styles, /bet-zone \{[^}]*grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.doesNotMatch(styles, /race-stage \{[^}]*min-height:3[5-9]0px/);
 });
 
 test("ships the active runner and pursuer art set", async () => {
@@ -256,6 +263,8 @@ test("defines a visible description for all 21 unordered role pairs", () => {
     for (let second = first; second < roleIds.length; second += 1) {
       const description = describeDuoPair([roleIds[first], roleIds[second]]);
       assert.ok(description.title.length > 2);
+      assert.ok(description.shortSummary.length > 2);
+      assert.ok([...description.shortSummary].length <= 28, `${description.key} compact copy is too long`);
       assert.match(description.summary, /→|機率|獲利/);
       assert.equal(description.roleDetails.length, 2);
       keys.add(description.key);

@@ -23,30 +23,30 @@ const ROLE_ORDER = Object.freeze(Object.keys(ROLE_MATH));
 const ROLE_RANK = Object.freeze(Object.fromEntries(ROLE_ORDER.map((roleId, index) => [roleId, index])));
 
 const MIXED_LINKS = Object.freeze({
-  "potato|chili": { title: "兩端包夾", rate: 0.3, recipients: "both", summary: "馬鈴薯在 2× 前成功、辣椒在 5× 後成功 → 兩注獲利＋30%" },
-  "potato|pumpkin": { title: "穩穩長大", rate: 0.2, recipients: "both", summary: "馬鈴薯在 2× 前成功、南瓜在 4× 後成功 → 兩注獲利＋20%" },
-  "potato|tomato": { title: "早收等熟", rate: 0.15, recipients: "both", summary: "馬鈴薯在 2× 前成功、番茄自動收成成功 → 兩注獲利＋15%" },
-  "potato|peapod": { title: "豆子補給", rate: 0.3, recipients: "partner", partnerRole: "potato", summary: "豌豆莢在 2× 後成功、馬鈴薯在 2× 前成功 → 馬鈴薯獲利＋30%" },
-  "potato|mushroom": { title: "小注摸大獎", rate: 0.15, recipients: "both", summary: "馬鈴薯在 2× 前成功、蘑菇成功 → 兩注獲利＋15%" },
-  "chili|pumpkin": { title: "高倍豐收", rate: 0.3, recipients: "both", summary: "辣椒在 5× 後成功、南瓜在 4× 後成功 → 兩注獲利＋30%" },
-  "chili|tomato": { title: "命運追高", rate: 0.25, recipients: "both", summary: "辣椒在 5× 後成功、番茄自動收成成功 → 兩注獲利＋25%" },
-  "chili|peapod": { title: "豌豆助燃", rate: 0.4, recipients: "partner", partnerRole: "chili", summary: "豌豆莢在 2× 後成功、辣椒在 5× 後成功 → 辣椒獲利＋40%" },
-  "chili|mushroom": { title: "極限大獎", rate: 0.3, recipients: "both", summary: "辣椒在 5× 後成功、蘑菇成功 → 兩注獲利＋30%" },
-  "pumpkin|tomato": { title: "成熟收成", rate: 0.2, recipients: "both", summary: "南瓜在 4× 後成功、番茄自動收成成功 → 兩注獲利＋20%" },
-  "pumpkin|peapod": { title: "里程補給", rate: 0.3, recipients: "partner", partnerRole: "pumpkin", summary: "豌豆莢在 2× 後成功、南瓜在 4× 後成功 → 南瓜獲利＋30%" },
-  "pumpkin|mushroom": { title: "巨型豐收", rate: 0.2, recipients: "both", summary: "南瓜在 4× 後成功、蘑菇成功 → 兩注獲利＋20%" },
-  "tomato|peapod": { title: "自動接豆", rate: 0.25, recipients: "partner", partnerRole: "tomato", summary: "豌豆莢在 2× 後成功、番茄自動收成成功 → 番茄獲利＋25%" },
-  "tomato|mushroom": { title: "命運頭獎", rate: 0.15, recipients: "both", summary: "番茄自動收成成功、蘑菇成功 → 兩注獲利＋15%" },
-  "peapod|mushroom": { title: "幸運孢子", rate: 0.25, recipients: "partner", partnerRole: "mushroom", summary: "豌豆莢在 2× 後成功、蘑菇成功 → 蘑菇獲利＋25%" },
+  "potato|chili": { title: "兩端包夾", rate: 0.3, recipients: "both", shortSummary: "早收＋5×成功 → 雙方獲利＋30%", summary: "馬鈴薯在 2× 前成功、辣椒在 5× 後成功 → 兩注獲利＋30%" },
+  "potato|pumpkin": { title: "穩穩長大", rate: 0.2, recipients: "both", shortSummary: "早收＋南瓜4× → 雙方獲利＋20%", summary: "馬鈴薯在 2× 前成功、南瓜在 4× 後成功 → 兩注獲利＋20%" },
+  "potato|tomato": { title: "早收等熟", rate: 0.15, recipients: "both", shortSummary: "早收＋番茄成功 → 雙方獲利＋15%", summary: "馬鈴薯在 2× 前成功、番茄自動收成成功 → 兩注獲利＋15%" },
+  "potato|peapod": { title: "豆子補給", rate: 0.3, recipients: "partner", partnerRole: "potato", shortSummary: "豌豆2×＋早收 → 馬鈴薯獲利＋30%", summary: "豌豆莢在 2× 後成功、馬鈴薯在 2× 前成功 → 馬鈴薯獲利＋30%" },
+  "potato|mushroom": { title: "小注摸大獎", rate: 0.15, recipients: "both", shortSummary: "早收＋蘑菇成功 → 雙方獲利＋15%", summary: "馬鈴薯在 2× 前成功、蘑菇成功 → 兩注獲利＋15%" },
+  "chili|pumpkin": { title: "高倍豐收", rate: 0.3, recipients: "both", shortSummary: "辣椒5×＋南瓜4× → 雙方獲利＋30%", summary: "辣椒在 5× 後成功、南瓜在 4× 後成功 → 兩注獲利＋30%" },
+  "chili|tomato": { title: "命運追高", rate: 0.25, recipients: "both", shortSummary: "辣椒5×＋番茄成功 → 雙方獲利＋25%", summary: "辣椒在 5× 後成功、番茄自動收成成功 → 兩注獲利＋25%" },
+  "chili|peapod": { title: "豌豆助燃", rate: 0.4, recipients: "partner", partnerRole: "chili", shortSummary: "豌豆2×＋辣椒5× → 辣椒獲利＋40%", summary: "豌豆莢在 2× 後成功、辣椒在 5× 後成功 → 辣椒獲利＋40%" },
+  "chili|mushroom": { title: "極限大獎", rate: 0.3, recipients: "both", shortSummary: "辣椒5×＋蘑菇成功 → 雙方獲利＋30%", summary: "辣椒在 5× 後成功、蘑菇成功 → 兩注獲利＋30%" },
+  "pumpkin|tomato": { title: "成熟收成", rate: 0.2, recipients: "both", shortSummary: "南瓜4×＋番茄成功 → 雙方獲利＋20%", summary: "南瓜在 4× 後成功、番茄自動收成成功 → 兩注獲利＋20%" },
+  "pumpkin|peapod": { title: "里程補給", rate: 0.3, recipients: "partner", partnerRole: "pumpkin", shortSummary: "豌豆2×＋南瓜4× → 南瓜獲利＋30%", summary: "豌豆莢在 2× 後成功、南瓜在 4× 後成功 → 南瓜獲利＋30%" },
+  "pumpkin|mushroom": { title: "巨型豐收", rate: 0.2, recipients: "both", shortSummary: "南瓜4×＋蘑菇成功 → 雙方獲利＋20%", summary: "南瓜在 4× 後成功、蘑菇成功 → 兩注獲利＋20%" },
+  "tomato|peapod": { title: "自動接豆", rate: 0.25, recipients: "partner", partnerRole: "tomato", shortSummary: "豌豆2×＋番茄成功 → 番茄獲利＋25%", summary: "豌豆莢在 2× 後成功、番茄自動收成成功 → 番茄獲利＋25%" },
+  "tomato|mushroom": { title: "命運頭獎", rate: 0.15, recipients: "both", shortSummary: "番茄＋蘑菇成功 → 雙方獲利＋15%", summary: "番茄自動收成成功、蘑菇成功 → 兩注獲利＋15%" },
+  "peapod|mushroom": { title: "幸運孢子", rate: 0.25, recipients: "partner", partnerRole: "mushroom", shortSummary: "豌豆2×＋蘑菇成功 → 蘑菇獲利＋25%", summary: "豌豆莢在 2× 後成功、蘑菇成功 → 蘑菇獲利＋25%" },
 });
 
 const SAME_ROLE_DESCRIPTIONS = Object.freeze({
-  potato: { title: "馬鈴薯共鳴", summary: "雙馬鈴薯上場：各自在 2× 前成功時，50% 機率派彩×2" },
-  chili: { title: "辣椒共鳴", summary: "雙辣椒上場：各自在 5× 後成功時，55% 機率派彩×2" },
-  pumpkin: { title: "南瓜共鳴", summary: "雙南瓜上場：2×／4×／6× 成功時，獲利＋20%／40%／70%" },
-  tomato: { title: "番茄共鳴", summary: "雙番茄上場：各自隨機 2–5× 自動收成，20% 機率派彩×3" },
-  peapod: { title: "豌豆共鳴", summary: "兩注都在 2× 後成功 → 兩注獲利＋30%" },
-  mushroom: { title: "蘑菇共鳴", summary: "雙蘑菇上場：各自成功時，8% 機率派彩×8" },
+  potato: { title: "馬鈴薯共鳴", shortSummary: "兩注2×前成功 → 各50%派彩×2", summary: "雙馬鈴薯上場：各自在 2× 前成功時，50% 機率派彩×2" },
+  chili: { title: "辣椒共鳴", shortSummary: "兩注5×後成功 → 各55%派彩×2", summary: "雙辣椒上場：各自在 5× 後成功時，55% 機率派彩×2" },
+  pumpkin: { title: "南瓜共鳴", shortSummary: "兩注里程加成 → 20%／40%／70%", summary: "雙南瓜上場：2×／4×／6× 成功時，獲利＋20%／40%／70%" },
+  tomato: { title: "番茄共鳴", shortSummary: "兩注自動收成 → ×3機率升至20%", summary: "雙番茄上場：各自隨機 2–5× 自動收成，20% 機率派彩×3" },
+  peapod: { title: "豌豆共鳴", shortSummary: "兩注2×後成功 → 雙方獲利＋30%", summary: "兩注都在 2× 後成功 → 兩注獲利＋30%" },
+  mushroom: { title: "蘑菇共鳴", shortSummary: "兩注成功 → ×8機率升至8%", summary: "雙蘑菇上場：各自成功時，8% 機率派彩×8" },
 });
 
 function clampUnit(value) {
@@ -134,7 +134,7 @@ function expectedOwnFactor(roleId, multiplier, roundRoleIds) {
 
 export function describeDuoPair(roleIds) {
   const pair = normalizedRolePair(roleIds?.[0], roleIds);
-  if (pair.length < 2) return { key: "", title: "再選一注", badge: "連攜預覽", summary: "兩注都下注後，依角色組合自動啟動連攜", roleDetails: ["等待第二隻角色", "等待第二隻角色"] };
+  if (pair.length < 2) return { key: "", title: "再選一注", badge: "連攜預覽", shortSummary: "兩注都下注後，自動啟動角色連攜", summary: "兩注都下注後，依角色組合自動啟動連攜", roleDetails: ["等待第二隻角色", "等待第二隻角色"] };
   if (pair[0] === pair[1]) {
     const description = SAME_ROLE_DESCRIPTIONS[pair[0]];
     return { key: pairKey(pair), ...description, badge: "同角共鳴", roleDetails: [description.summary, description.summary] };

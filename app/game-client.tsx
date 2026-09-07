@@ -920,8 +920,8 @@ export default function GameClient() {
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
           {phase === "betting" && (
             <div className={`duo-preview stage-duo-preview ${duoActive ? "is-active" : ""}`} aria-label="目前雙注連攜">
-              <strong>🔗 {duoDescription.title}</strong>
-              <small>{duoActive ? "連攜已啟動" : "兩注都下注後啟動"} · {duoDescription.summary}</small>
+              <strong><span>🔗 {duoDescription.title}</span><b>{duoActive ? "已啟動" : "待兩注下注"}</b></strong>
+              <small>{duoDescription.shortSummary}</small>
             </div>
           )}
           <button className="fair-link" onClick={() => setFairOpen(true)}>FAIR ✓</button>
@@ -951,10 +951,8 @@ export default function GameClient() {
                 <div className="role-info" style={{ "--role-accent": role.accent } as CSSProperties}>
                   <div className="role-name-row">
                     <strong>{role.name}</strong>
-                    <span className={`combo-badge ${duoActive ? "active" : ""}`}>{duoDescription.badge}</span>
                   </div>
                   <p>{role.detail}</p>
-                  <small className="combo-copy">{duoDescription.roleDetails[ticketIndex]}</small>
                 </div>
 
                 <div className="amount-stepper">

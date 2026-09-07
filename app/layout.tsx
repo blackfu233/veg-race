@@ -32,11 +32,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: new URL(origin),
     title: "Veggie Dash — 蔬菜跑跑",
-    description: "雙角色策略 Crash Game 互動展示。最多同時兩注，十種角色玩法自由組合。",
+    description: "雙角色策略 Crash Game 互動展示。最多同時兩注，六種角色玩法自由組合。",
     icons: { icon: "/favicon.png", shortcut: "/favicon.png", apple: "/apple-touch-icon.png" },
     openGraph: {
       title: "Veggie Dash — 蔬菜跑跑",
-      description: "十種鮮明角色、雙注自由組合的手機 Crash Game Demo。",
+      description: "六種鮮明角色、雙注自由組合的手機 Crash Game Demo。",
       type: "website",
       images: [{ url: socialImage, width: 1200, height: 630, alt: "Veggie Dash 蔬菜角色在農場道路競跑" }],
     },
