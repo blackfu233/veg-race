@@ -3,13 +3,13 @@ import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "../app/ticket-actions.mjs";
 import {
-  calibrateParlayBaseRtp,
   calibrateRoundBaseRtp,
   crashPointFromUnit,
+  describeDuoPair,
   expectedCrashPayout,
-  expectedParlayRoundReturn,
   expectedRoundReturn,
   expectedSuccessfulPayout,
+  settleDuoLink,
   settleCrashRole,
   settleSuccessfulCashout,
   survivalAt,
@@ -34,7 +34,7 @@ test("cancellation refunds exactly one pending independent bet and is idempotent
     { placed: true, status: "placed", amount: 100, roleId: "potato", autoBet: true },
     { placed: true, status: "placed", amount: 250, roleId: "chili", autoBet: false },
   ];
-  const args = { tickets, balance: 650, index: 0, phase: "betting", parlayMode: false, now: 100, deadline: 200 };
+  const args = { tickets, balance: 650, index: 0, phase: "betting", now: 100, deadline: 200 };
   const first = cancelPendingBet(args);
   assert.equal(first.balance, 750);
   assert.equal(first.refund, 100);
@@ -48,17 +48,18 @@ test("cancellation refunds exactly one pending independent bet and is idempotent
   assert.equal(repeated.refund, 0);
 });
 
-test("parlay cancellation reverses both legs before the deadline only", () => {
+test("each pending bet can be cancelled separately before the deadline only", () => {
   const tickets = [
     { placed: true, status: "placed", amount: 100 },
     { placed: true, status: "placed", amount: 250 },
   ];
-  const args = { tickets, balance: 650, index: 1, phase: "betting", parlayMode: true, now: 199, deadline: 200 };
+  const args = { tickets, balance: 650, index: 1, phase: "betting", now: 199, deadline: 200 };
   const result = cancelPendingBet(args);
-  assert.equal(result.balance, 1000);
-  assert.equal(result.refund, 350);
-  assert.deepEqual(result.cancelledIndexes, [0, 1]);
-  assert.ok(result.tickets.every((ticket) => !ticket.placed && ticket.status === "idle"));
+  assert.equal(result.balance, 900);
+  assert.equal(result.refund, 250);
+  assert.deepEqual(result.cancelledIndexes, [1]);
+  assert.equal(result.tickets[0].placed, true);
+  assert.equal(result.tickets[1].placed, false);
   assert.equal(cancelPendingBet({ ...args, now: 200 }).refund, 0);
   assert.equal(cancelPendingBet({ ...args, phase: "running" }).refund, 0);
   assert.equal(cancelPendingBet({ ...args, phase: "crashed" }).refund, 0);
@@ -91,10 +92,10 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="road-runner\b/, "the road must stay empty before a bet is placed");
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
-  assert.match(source, /雙注聯動/);
-  assert.match(source, /同場串關/);
-  assert.match(source, /雙注共享/);
-  assert.match(source, /本注限定/);
+  assert.match(source, /21 種雙注連攜/);
+  assert.match(source, /連攜已啟動/);
+  assert.doesNotMatch(source, /同場串關|BET BOTH|兩關相乘/);
+  assert.doesNotMatch(source, /雙注共享|本注限定/);
 });
 
 test("locks the viewport and keeps touch controls zoom-free", async () => {
@@ -133,47 +134,46 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.match(source, /digestHex\(seed \+ ":crash"\)/);
   assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "mushroom", "target"\]/);
   assert.match(source, /digestHex\(`\$\{seed\}:ticket:\$\{index\}:\$\{key\}`\)/);
-  assert.match(source, /calibrateParlayBaseRtp\(wagers\)/);
   assert.match(source, /calibrateRoundBaseRtp\(wagers\)/);
 });
 
-test("keeps same-event parlay on one shared crash and multiplies two legs", async () => {
+test("keeps every duo on one shared crash without parlay settlement", async () => {
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
-  assert.match(source, /兩關都成功才派彩/);
-  assert.match(source, /combinedFactor/);
+  assert.match(source, /settleDuoLink/);
   assert.match(source, /fox-pursuer fox-shared/);
   assert.match(source, /type RoundSpec = \{[\s\S]*?crashPoint: number;[\s\S]*?abilityRolls/);
   assert.doesNotMatch(source, /crashPoint2|crashPoints/);
-
-  const plainParlay = [
-    { roleId: "peapod", stake: 100, target: 1.5 },
-    { roleId: "peapod", stake: 100, target: 5 },
-  ];
-  const baseRtp = calibrateParlayBaseRtp(plainParlay);
-  assert.ok(Math.abs(baseRtp - 0.64) < 1e-12);
-  assert.ok(Math.abs(expectedParlayRoundReturn(plainParlay, baseRtp) / 200 - TARGET_RTP) < 1e-12);
+  assert.doesNotMatch(source, /combinedFactor|parlayMode/);
 });
 
-test("shares bonus roles across two tickets but keeps operation roles self-only", () => {
-  const potatoSupport = settleSuccessfulCashout("chili", 100, 1.5, hitRolls, ["potato", "chili"]);
-  assert.equal(potatoSupport.payout, 300);
-  assert.deepEqual(potatoSupport.triggeredRoleIds, ["potato"]);
-
-  const chiliSupport = settleSuccessfulCashout("potato", 100, 5, hitRolls, ["potato", "chili"]);
-  assert.equal(chiliSupport.payout, 1000);
-  assert.deepEqual(chiliSupport.triggeredRoleIds, ["chili"]);
-
-  const mushroomSupport = settleSuccessfulCashout("peapod", 100, 2, hitRolls, ["peapod", "mushroom"]);
-  assert.equal(mushroomSupport.payout, 1600);
-  assert.deepEqual(mushroomSupport.triggeredRoleIds, ["mushroom"]);
-
-  const pumpkinSupport = settleCrashRole("chili", 100, hitRolls, ["chili", "pumpkin"]);
-  assert.equal(pumpkinSupport.payout, 100);
-
+test("keeps base abilities on their own ticket and awards duo links after both cashouts", () => {
+  assert.equal(settleSuccessfulCashout("chili", 100, 1.5, hitRolls, ["potato", "chili"]).payout, 150);
+  assert.equal(settleSuccessfulCashout("potato", 100, 5, hitRolls, ["potato", "chili"]).payout, 500);
+  assert.equal(settleSuccessfulCashout("peapod", 100, 2, hitRolls, ["peapod", "mushroom"]).payout, 200);
   const tomatoSelf = settleSuccessfulCashout("tomato", 100, 3, hitRolls, ["tomato", "peapod"]);
   assert.equal(tomatoSelf.payout, 900);
-  const tomatoDoesNotShare = settleSuccessfulCashout("peapod", 100, 3, hitRolls, ["tomato", "peapod"]);
-  assert.equal(tomatoDoesNotShare.payout, 300);
+
+  const peaChili = settleDuoLink([
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed" },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
+  ]);
+  assert.deepEqual(peaChili.extras, [0, 200]);
+  assert.equal(peaChili.total, 200);
+  assert.match(peaChili.note, /豌豆助燃/);
+
+  const peaResonance = settleDuoLink([
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed" },
+    { roleId: "peapod", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
+  ]);
+  assert.deepEqual(peaResonance.extras, [45, 60]);
+  assert.equal(settleDuoLink([
+    { roleId: "peapod", stake: 100, cashAt: 1.9, payout: 190, status: "cashed" },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
+  ]).total, 0);
+  assert.equal(settleDuoLink([
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed", linkAwarded: true },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
+  ]).total, 0, "a link award must be idempotent");
 });
 
 test("keeps thresholds and showcase forcing honest", () => {
@@ -182,7 +182,11 @@ test("keeps thresholds and showcase forcing honest", () => {
   assert.equal(settleSuccessfulCashout("chili", 100, 5, hitRolls).outcome, "bonus");
   assert.equal(settleSuccessfulCashout("chili", 100, 4.99, hitRolls).outcome, "neutral");
   assert.equal(settleSuccessfulCashout("mushroom", 100, 2, hitRolls).payout, 1600);
-  assert.equal(settleCrashRole("pumpkin", 100, hitRolls).payout, 100);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 2, hitRolls).payout, 210);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 4, hitRolls).payout, 475);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 6, hitRolls).payout, 850);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 6, hitRolls, ["pumpkin", "pumpkin"]).payout, 950);
+  assert.equal(settleCrashRole().payout, 0);
 });
 
 test("keeps the chase meter cosmetic and emphasizes large results", async () => {
@@ -207,7 +211,7 @@ test("keeps every role settlement positive-only", () => {
       }
     }
   }
-  assert.equal(settleCrashRole("pumpkin", 100, neutralRolls).payout, 0);
+  assert.equal(settleCrashRole().payout, 0);
 });
 
 test("matches the analytical feature budget for each single role", () => {
@@ -246,23 +250,18 @@ test("calibrates all six single-role and 21 unordered two-role VI curves to 96% 
   assert.equal(combinationCount, 21);
 });
 
-test("calibrates all 21 same-event parlay role pairs to 96% RTP", () => {
-  const targets = [1.2, 1.5, 2, 3, 5, 8];
-  let combinationCount = 0;
+test("defines a visible description for all 21 unordered role pairs", () => {
+  const keys = new Set();
   for (let first = 0; first < roleIds.length; first += 1) {
     for (let second = first; second < roleIds.length; second += 1) {
-      const wagers = [
-        { roleId: roleIds[first], stake: 1, target: targets[first] },
-        { roleId: roleIds[second], stake: 1 + ((first + second) % 3), target: targets[second] },
-      ];
-      const baseRtp = calibrateParlayBaseRtp(wagers);
-      const parlayRtp = expectedParlayRoundReturn(wagers, baseRtp) / wagers.reduce((sum, wager) => sum + wager.stake, 0);
-      assert.ok(baseRtp <= TARGET_RTP);
-      assert.ok(Math.abs(parlayRtp - TARGET_RTP) < 1e-9, `${roleIds[first]} + ${roleIds[second]} parlay returned ${parlayRtp}`);
-      combinationCount += 1;
+      const description = describeDuoPair([roleIds[first], roleIds[second]]);
+      assert.ok(description.title.length > 2);
+      assert.match(description.summary, /→|機率|獲利/);
+      assert.equal(description.roleDetails.length, 2);
+      keys.add(description.key);
     }
   }
-  assert.equal(combinationCount, 21);
+  assert.equal(keys.size, 21);
 });
 
 test("maps the committed crash unit through the selected VI curve", () => {
@@ -279,7 +278,7 @@ test("maps the committed crash unit through the selected VI curve", () => {
   }
 });
 
-test("strong shared abilities lower the base curve while preserving the 96% target", () => {
+test("strong abilities and links lower the base curve while preserving the 96% target", () => {
   const plain = [{ roleId: "peapod", stake: 1, target: 3 }];
   const shared = [
     { roleId: "mushroom", stake: 1, target: 3 },

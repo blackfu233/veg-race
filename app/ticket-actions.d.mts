@@ -5,7 +5,6 @@ export function cancelPendingBet<T extends { placed: boolean; status: string; am
   balance: number;
   index: number;
   phase: string;
-  parlayMode: boolean;
   now: number;
   deadline: number;
 }): { tickets: T[]; balance: number; refund: number; cancelledIndexes: number[] };
