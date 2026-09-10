@@ -608,7 +608,7 @@ export default function GameClient() {
     });
 
     const placedIndexes = next.flatMap((ticket, ticketIndex) => ticket.enabled && ticket.placed ? [ticketIndex] : []);
-    const settlementTickets = next.map((ticket) => ({
+    const settlementTickets = next.map((ticket, ticketIndex) => ({
       roleId: ticket.roleId,
       stake: ticket.amount,
       cashAt: ticket.cashAt,

@@ -434,6 +434,7 @@ test("uses the same two-decimal boundary for 1.01x display and auto cashout", as
   assert.equal(crashPointFromUnit(exactUnit), 1.01);
   assert.equal(crashPointFromUnit(belowUnit), 1);
   assert.match(source, /target <= crashPoint && nextMultiplier >= target/);
+  assert.match(source, /const settlementTickets = next\.map\(\(ticket, ticketIndex\) =>/);
 });
 
 test("strong abilities and links lower the base curve while preserving the 96% target", () => {
