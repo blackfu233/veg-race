@@ -127,7 +127,7 @@ test("locks the viewport and keeps touch controls zoom-free", async () => {
   assert.match(styles, /game-phone \{[^}]*height:min\(100dvh,905px\)/);
   assert.match(styles, /grid-template-rows:var\(--stage-height\) minmax\(0,1fr\) var\(--footer-height\)/);
   assert.match(styles, /race-stage \{[^}]*height:100%; min-height:0/);
-  assert.match(styles, /bet-zone \{[^}]*grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(styles, /bet-zone \{[^}]*grid-template-rows:repeat\(2,minmax\(0,1fr\)\)[^}]*position:relative/);
   assert.doesNotMatch(styles, /race-stage \{[^}]*min-height:3[5-9]0px/);
 });
 

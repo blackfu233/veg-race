@@ -229,7 +229,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .fair-link { position:absolute; z-index:14; right:9px; bottom:13px; border:1px solid rgba(255,255,255,.34); border-radius:11px; padding:4px 7px; color:white; background:rgba(35,105,52,.82); box-shadow:0 2px 5px rgba(31,70,38,.18); font-size:9px; font-weight:850; transition:transform .12s,background .12s; }
 .fair-link:active { transform:translateY(1px); background:rgba(29,90,44,.92); }
 
-.bet-zone { min-height:0; padding:clamp(5px,1.25dvh,12px) 9px clamp(5px,1.15dvh,11px); display:grid; grid-template-rows:repeat(2,minmax(0,1fr)); gap:clamp(5px,1.2dvh,11px); overflow:hidden; background:linear-gradient(180deg,#dff3dc,#d7ecd4); }
+.bet-zone { min-height:0; padding:clamp(5px,1.25dvh,12px) 9px clamp(5px,1.15dvh,11px); display:grid; grid-template-rows:repeat(2,minmax(0,1fr)); gap:clamp(5px,1.2dvh,11px); position:relative; overflow:hidden; background:linear-gradient(180deg,#dff3dc,#d7ecd4); }
 .duo-preview { padding:6px 9px; display:grid; align-content:center; gap:2px; border:1px solid #e1b64e; border-radius:13px; color:#754d16; background:linear-gradient(135deg,rgba(255,250,219,.96),rgba(255,229,153,.96)); box-shadow:0 3px 10px rgba(86,60,20,.2),inset 0 1px white; }
 .duo-preview strong { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; line-height:1.1; }
 .duo-preview strong span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
