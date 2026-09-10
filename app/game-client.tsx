@@ -107,7 +107,7 @@ const roles: Role[] = [
   { id: "mushroom", name: "蘑菇", short: "成功：4.5% 派彩×8", detail: "成功 Cash Out → 4.5% 機率派彩×8 Jackpot", accent: "#8a5abb" },
 ];
 
-const mainRoleIds: RoleId[] = ["potato", "chili", "pumpkin", "tomato"];
+const mainRoleIds: RoleId[] = ["potato", "chili", "mushroom", "tomato"];
 const mainRoles = roles.filter((role) => mainRoleIds.includes(role.id));
 const supports: Support[] = [
   { id: "ketchup", name: "番茄醬", short: "支援2×後成功：主角獲利＋20%", detail: "支援注 2× 後成功 → 主角獲利＋20%", accent: "#ed4a42" },
@@ -637,7 +637,6 @@ export default function GameClient() {
       });
       if (gameModeRef.current === "support") {
         if (linkSettlement.supportTriggered) triggerSupportFx(supportIdRef.current, `${supportById[supportIdRef.current].name} · 支援成功！`);
-        linkSettlement.sourceIndexes.forEach((ticketIndex) => triggerSkillFx("pumpkin", ticketIndex, "南瓜藤蔓 · 收成50%獲利！"));
       } else linkSettlement.sourceIndexes.forEach((placedIndex) => {
         const ticketIndex = placedIndexes[placedIndex];
         const roleId = next[ticketIndex].roleId;
@@ -1167,11 +1166,9 @@ export default function GameClient() {
             const tomatoAuto = usesTomatoAuto(ticket, ticketIndex, gameMode);
             const roleChoices = gameMode === "support" ? mainRoles : roles;
             const infoAccent = isSupportPanel ? selectedSupport.accent : role.accent;
-            const roleDetail = gameMode === "support" && ticketIndex === 0 && ticket.roleId === "pumpkin"
-              ? "兩注都成功 → 25%取得支援注50%獲利"
-              : gameMode === "duo" && (ticket.roleId === "pumpkin" || ticket.roleId === "peapod")
-                ? duoDescription.roleDetails[ticketIndex]
-                : role.detail;
+            const roleDetail = gameMode === "duo" && (ticket.roleId === "pumpkin" || ticket.roleId === "peapod")
+              ? duoDescription.roleDetails[ticketIndex]
+              : role.detail;
             return (
               <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") || ticket.linkAwarded ? "skill-triggered" : ""} ${linkedActive ? "has-duo" : ""} ${isSupportPanel ? "support-card" : gameMode === "support" ? "main-card" : ""}`} key={ticketIndex}>
                 <div className={`character-grid ${gameMode === "support" ? "four-grid" : ""}`} aria-label={`下注 ${ticketIndex + 1} 選擇${isSupportPanel ? "支援醬料" : "角色"}`}>
@@ -1325,7 +1322,7 @@ export default function GameClient() {
               <div className="ability-sharing-note">
                 <strong>{gameMode === "support" ? "🥫 支援怎麼生效" : "🔗 雙注能力怎麼生效"}</strong>
                 <span>{gameMode === "support"
-                  ? "上方是主角、下方是醬料支援。兩注共用同一爆點並可各自 Cash Out；兩注都成功且達成醬料條件，主角再拿額外獲利。南瓜觸發時，另追加支援注50%獲利。"
+                  ? "上方是主角、下方是醬料支援。兩注共用同一爆點並可各自 Cash Out；兩注都成功且達成醬料條件，主角再拿額外獲利。"
                   : "兩注選角後，角色卡會直接寫出目前組合的獎勵來源與對象。豌豆把自己的獲利加給另一注；南瓜取得另一注50%獲利。轉移只計算原始獲利，不重複計算其他角色加成。"}</span>
               </div>
               <div className="ability-sharing-note near-miss-note">

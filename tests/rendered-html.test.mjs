@@ -21,7 +21,7 @@ import {
 } from "../app/rtp-engine.mjs";
 
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
-const mainRoleIds = ["potato", "chili", "pumpkin", "tomato"];
+const mainRoleIds = ["potato", "chili", "mushroom", "tomato"];
 const supportIds = ["ketchup", "mayonnaise", "mustard", "wasabi"];
 const neutralRolls = { potato: 0.99, chili: 0.99, pumpkin: 0.99, tomato: 0.99, peapod: 0.99, mushroom: 0.99 };
 const hitRolls = { potato: 0, chili: 0, pumpkin: 0, tomato: 0, peapod: 0, mushroom: 0 };
@@ -99,6 +99,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙注能力怎麼生效/);
+  assert.match(source, /const mainRoleIds: RoleId\[\] = \["potato", "chili", "mushroom", "tomato"\]/);
   assert.match(source, /25%機率把本注獲利加給另一注/);
   assert.match(source, /25%機率取得另一注50%獲利/);
   assert.match(source, /連攜啟動！/);
@@ -199,6 +200,12 @@ test("awards support only to the main ticket after both bets cash out", () => {
   assert.equal(ketchup.total, 40);
   assert.match(ketchup.note, /主角獲利＋20%/);
 
+  const mushroomJackpot = settleSupportLink([
+    { roleId: "mushroom", stake: 100, cashAt: 2, payout: settleSuccessfulCashout("mushroom", 100, 2, hitRolls).payout, status: "cashed" },
+    { roleId: "mushroom", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
+  ], "ketchup");
+  assert.deepEqual(mushroomJackpot.extras, [300, 0], "support applies to the Mushroom jackpot profit without replacing its own ability");
+
   const mayonnaise = settleSupportLink([
     { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
     { roleId: "potato", stake: 100, cashAt: 1.8, payout: 180, status: "cashed" },
@@ -216,15 +223,6 @@ test("awards support only to the main ticket after both bets cash out", () => {
     { roleId: "potato", stake: 100, cashAt: 6, payout: 600, status: "lost" },
     { roleId: "potato", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
   ], "wasabi").total, 0, "support never rescues a lost main ticket");
-
-  const pumpkinHarvest = settleSupportLink([
-    { roleId: "pumpkin", stake: 100, cashAt: 3, payout: 300, status: "cashed", abilityRoll: 0 },
-    { roleId: "pumpkin", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
-  ], "mustard");
-  assert.deepEqual(pumpkinHarvest.extras, [50, 0]);
-  assert.equal(pumpkinHarvest.supportTriggered, false);
-  assert.deepEqual(pumpkinHarvest.sourceIndexes, [0]);
-  assert.match(pumpkinHarvest.note, /南瓜藤蔓/);
 });
 
 test("keeps base abilities separate and settles profit transfers only after both cashouts", () => {

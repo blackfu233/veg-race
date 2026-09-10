@@ -265,32 +265,19 @@ export function settleSupportLink(tickets, supportId) {
   const support = tickets[1];
   if (!main || !support || main.placed === false || support.placed === false
     || main.status !== "cashed" || support.status !== "cashed"
-    || main.linkAwarded || support.linkAwarded) return emptyLinkResult();
-  const extras = [0, 0];
-  const notes = [];
-  const sourceIndexes = [];
-  let supportTriggered = false;
-  if (supportConditionMet(supportId, main.cashAt, support.cashAt)) {
-    const math = SUPPORT_MATH[supportId];
-    extras[0] += Math.max(0, main.payout - main.stake) * math.profitBonus;
-    notes.push(`${SUPPORT_NAMES[supportId]}支援：主角獲利＋${Math.round(math.profitBonus * 100)}%`);
-    supportTriggered = true;
-  }
-  if (main.roleId === "pumpkin" && clampUnit(main.abilityRoll) < ROLE_MATH.pumpkin.triggerChance) {
-    extras[0] += baseProfit(support) * ROLE_MATH.pumpkin.partnerProfitShare;
-    notes.push("南瓜藤蔓：追加支援注50%獲利");
-    sourceIndexes.push(0);
-  }
-  const total = extras[0];
+    || main.linkAwarded || support.linkAwarded
+    || !supportConditionMet(supportId, main.cashAt, support.cashAt)) return emptyLinkResult();
+  const math = SUPPORT_MATH[supportId];
+  const total = Math.max(0, main.payout - main.stake) * math.profitBonus;
   if (total <= 0) return emptyLinkResult();
   return {
-    extras,
+    extras: [total, 0],
     total,
-    note: notes.join(" · "),
-    title: supportTriggered && sourceIndexes.length ? "醬料＋藤蔓雙重加成" : supportTriggered ? `${SUPPORT_NAMES[supportId]}支援成功` : "南瓜藤蔓收成",
+    note: `${SUPPORT_NAMES[supportId]}支援：主角獲利＋${Math.round(math.profitBonus * 100)}%`,
+    title: `${SUPPORT_NAMES[supportId]}支援成功`,
     triggered: true,
-    sourceIndexes,
-    supportTriggered,
+    sourceIndexes: [],
+    supportTriggered: true,
     description: null,
   };
 }
@@ -400,10 +387,6 @@ function supportRoundParts(mainWager, supportWager, supportId) {
     const conditionalMainPayout = expectedSuccessfulPayout(main.roleId, main.stake, main.target, [main.roleId]);
     const conditionalExtra = Math.max(0, conditionalMainPayout - main.stake) * SUPPORT_MATH[supportId].profitBonus;
     baseCoefficient += conditionalExtra / Math.max(main.target, support.target);
-  }
-  if (main?.roleId === "pumpkin" && support) {
-    const pumpkinExtra = ROLE_MATH.pumpkin.triggerChance * baseProfit(support) * ROLE_MATH.pumpkin.partnerProfitShare;
-    baseCoefficient += pumpkinExtra / Math.max(main.target, support.target);
   }
   return { totalStake, baseCoefficient };
 }

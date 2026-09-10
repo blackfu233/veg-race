@@ -15,13 +15,13 @@ import {
 } from "../app/rtp-engine.mjs";
 
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
-const mainRoleIds = ["potato", "chili", "pumpkin", "tomato"];
+const mainRoleIds = ["potato", "chili", "mushroom", "tomato"];
 const supportIds = ["ketchup", "mayonnaise", "mustard", "wasabi"];
 const targets = [1.2, 1.5, 1.99, 2, 3, 4, 4.99, 5, 6, 10, 25, 50, 99];
 const sampledTargets = [1.5, 2, 3, 5, 10];
 const stakePairs = [[1, 1], [1, 3], [3, 1], [10, 37]];
 const samplesPerMode = Number.parseInt(process.argv[2] ?? "2000000", 10);
-const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-validation-v16.json");
+const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-validation-v17.json");
 
 function mulberry32(seed) {
   let state = seed >>> 0;
@@ -164,7 +164,7 @@ const [engineSource, testSource] = await Promise.all([
 ]);
 const report = {
   schema: "veggie-dash-rtp-validation/2",
-  variant: "duo-profit-transfer-v16",
+  variant: "mushroom-support-v17",
   targetRtp: TARGET_RTP,
   payoutConvention: "gross return includes stake",
   sharedEvent: "both tickets observe one crash point",
