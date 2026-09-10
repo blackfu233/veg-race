@@ -176,7 +176,8 @@ export function describeDuoPair(roleIds) {
 export function crashPointFromUnit(unit, baseRtp = TARGET_RTP) {
   const safeUnit = clampUnit(unit);
   const safeBaseRtp = Math.min(TARGET_RTP, Math.max(Number.EPSILON, baseRtp));
-  return Math.min(100, Math.max(1, safeBaseRtp / Math.max(Number.EPSILON, 1 - safeUnit)));
+  const rawPoint = Math.min(100, Math.max(1, safeBaseRtp / Math.max(Number.EPSILON, 1 - safeUnit)));
+  return Math.floor(rawPoint * 100 + 1e-9) / 100;
 }
 
 export function survivalAt(multiplier, baseRtp = TARGET_RTP) {

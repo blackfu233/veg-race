@@ -419,12 +419,21 @@ test("maps the committed crash unit through the selected VI curve", () => {
     for (const multiplier of [1.01, 1.5, 2, 5, 10, 50, 99.9]) {
       let wins = 0;
       for (let index = 0; index < sampleCount; index += 1) {
-        if (multiplier < crashPointFromUnit((index + 0.5) / sampleCount, baseRtp)) wins += 1;
+        if (multiplier <= crashPointFromUnit((index + 0.5) / sampleCount, baseRtp)) wins += 1;
       }
       assert.ok(Math.abs(multiplier * wins / sampleCount - baseRtp) < 0.0005);
       assert.ok(Math.abs(survivalAt(multiplier, baseRtp) * multiplier - baseRtp) < 1e-12);
     }
   }
+});
+
+test("uses the same two-decimal boundary for 1.01x display and auto cashout", async () => {
+  const exactUnit = 1 - TARGET_RTP / 1.01;
+  const belowUnit = 1 - TARGET_RTP / 1.009;
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  assert.equal(crashPointFromUnit(exactUnit), 1.01);
+  assert.equal(crashPointFromUnit(belowUnit), 1);
+  assert.match(source, /target <= crashPoint && nextMultiplier >= target/);
 });
 
 test("strong abilities and links lower the base curve while preserving the 96% target", () => {

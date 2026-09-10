@@ -800,7 +800,7 @@ export default function GameClient() {
         if (ticket.status !== "running") return;
         const usesTomatoAuto = (gameModeRef.current === "duo" || index === 0) && ticket.roleId === "tomato";
         const target = usesTomatoAuto ? ticket.autoRoleTarget : ticket.autoCash;
-        if (target && target < crashPoint && nextMultiplier >= target) cashOut(index, target, true);
+        if (target && target <= crashPoint && nextMultiplier >= target) cashOut(index, target, true);
       });
       const roundEndPoint = safeRunRef.current.active ? safeRunRef.current.visualEnd : crashPoint;
       if (nextMultiplier >= roundEndPoint) {
