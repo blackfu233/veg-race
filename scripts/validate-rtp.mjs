@@ -21,7 +21,7 @@ const targets = [1.2, 1.5, 1.99, 2, 3, 4, 4.99, 5, 6, 10, 25, 50, 99];
 const sampledTargets = [1.5, 2, 3, 5, 10];
 const stakePairs = [[1, 1], [1, 3], [3, 1], [10, 37]];
 const samplesPerMode = Number.parseInt(process.argv[2] ?? "2000000", 10);
-const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-validation-v15.json");
+const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-validation-v16.json");
 
 function mulberry32(seed) {
   let state = seed >>> 0;
@@ -110,7 +110,7 @@ function simulateDuo(sampleCount) {
     const tickets = scenario.wagers.map((wager) => {
       const won = wager.target < crashPoint;
       const cashPayout = won ? settleSuccessfulCashout(wager.roleId, wager.stake, wager.target, rng(), rolePair).payout : 0;
-      return { roleId: wager.roleId, stake: wager.stake, cashAt: won ? wager.target : null, payout: cashPayout, status: won ? "cashed" : "lost" };
+      return { roleId: wager.roleId, stake: wager.stake, cashAt: won ? wager.target : null, payout: cashPayout, status: won ? "cashed" : "lost", abilityRoll: rng() };
     });
     const link = settleDuoLink(tickets);
     const roundPayout = tickets[0].payout + tickets[1].payout + link.total;
@@ -141,7 +141,7 @@ function simulateSupport(sampleCount) {
       : 0;
     const supportPayout = supportWon ? scenario.supportWager.stake * scenario.supportWager.target : 0;
     const tickets = [
-      { roleId: scenario.mainWager.roleId, stake: scenario.mainWager.stake, cashAt: mainWon ? scenario.mainWager.target : null, payout: mainPayout, status: mainWon ? "cashed" : "lost" },
+      { roleId: scenario.mainWager.roleId, stake: scenario.mainWager.stake, cashAt: mainWon ? scenario.mainWager.target : null, payout: mainPayout, status: mainWon ? "cashed" : "lost", abilityRoll: rng() },
       { roleId: scenario.mainWager.roleId, stake: scenario.supportWager.stake, cashAt: supportWon ? scenario.supportWager.target : null, payout: supportPayout, status: supportWon ? "cashed" : "lost" },
     ];
     const support = settleSupportLink(tickets, scenario.supportId);
@@ -163,8 +163,8 @@ const [engineSource, testSource] = await Promise.all([
   readFile(new URL("../tests/rendered-html.test.mjs", import.meta.url)),
 ]);
 const report = {
-  schema: "veggie-dash-rtp-validation/1",
-  variant: "duo-and-main-support-v15",
+  schema: "veggie-dash-rtp-validation/2",
+  variant: "duo-profit-transfer-v16",
   targetRtp: TARGET_RTP,
   payoutConvention: "gross return includes stake",
   sharedEvent: "both tickets observe one crash point",

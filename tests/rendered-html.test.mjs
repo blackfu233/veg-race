@@ -23,8 +23,8 @@ import {
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
 const mainRoleIds = ["potato", "chili", "pumpkin", "tomato"];
 const supportIds = ["ketchup", "mayonnaise", "mustard", "wasabi"];
-const neutralRolls = { potato: 0.99, chili: 0.99, pumpkin: 0.99, tomato: 0.99, mushroom: 0.99 };
-const hitRolls = { potato: 0, chili: 0, pumpkin: 0, tomato: 0, mushroom: 0 };
+const neutralRolls = { potato: 0.99, chili: 0.99, pumpkin: 0.99, tomato: 0.99, peapod: 0.99, mushroom: 0.99 };
+const hitRolls = { potato: 0, chili: 0, pumpkin: 0, tomato: 0, peapod: 0, mushroom: 0 };
 
 test("unplaced panels stay editable independently of the round phase", async () => {
   assert.equal(canEditUnplacedTicket({ placed: false }), true);
@@ -98,7 +98,9 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="road-runner\b/, "the road must stay empty before a bet is placed");
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
-  assert.match(source, /21 種雙注連攜/);
+  assert.match(source, /雙注能力怎麼生效/);
+  assert.match(source, /25%機率把本注獲利加給另一注/);
+  assert.match(source, /25%機率取得另一注50%獲利/);
   assert.match(source, /連攜啟動！/);
   assert.match(source, /className="duo-activation"/);
   assert.match(source, /className="duo-bridge"/);
@@ -154,7 +156,7 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.match(source, /abilityRolls/);
   assert.match(source, /digestHex\(seed \+ ":crash"\)/);
   assert.match(source, /digestHex\(seed \+ ":near-miss"\)/);
-  assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "mushroom", "target"\]/);
+  assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target"\]/);
   assert.match(source, /digestHex\(`\$\{seed\}:ticket:\$\{index\}:\$\{key\}`\)/);
   assert.match(source, /calibrateRoundBaseRtp\(wagers\)/);
 });
@@ -214,35 +216,55 @@ test("awards support only to the main ticket after both bets cash out", () => {
     { roleId: "potato", stake: 100, cashAt: 6, payout: 600, status: "lost" },
     { roleId: "potato", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
   ], "wasabi").total, 0, "support never rescues a lost main ticket");
+
+  const pumpkinHarvest = settleSupportLink([
+    { roleId: "pumpkin", stake: 100, cashAt: 3, payout: 300, status: "cashed", abilityRoll: 0 },
+    { roleId: "pumpkin", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
+  ], "mustard");
+  assert.deepEqual(pumpkinHarvest.extras, [50, 0]);
+  assert.equal(pumpkinHarvest.supportTriggered, false);
+  assert.deepEqual(pumpkinHarvest.sourceIndexes, [0]);
+  assert.match(pumpkinHarvest.note, /南瓜藤蔓/);
 });
 
-test("keeps base abilities on their own ticket and awards duo links after both cashouts", () => {
+test("keeps base abilities separate and settles profit transfers only after both cashouts", () => {
   assert.equal(settleSuccessfulCashout("chili", 100, 1.5, hitRolls, ["potato", "chili"]).payout, 150);
   assert.equal(settleSuccessfulCashout("potato", 100, 5, hitRolls, ["potato", "chili"]).payout, 500);
   assert.equal(settleSuccessfulCashout("peapod", 100, 2, hitRolls, ["peapod", "mushroom"]).payout, 200);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 4, hitRolls, ["pumpkin", "mushroom"]).payout, 400);
   const tomatoSelf = settleSuccessfulCashout("tomato", 100, 3, hitRolls, ["tomato", "peapod"]);
   assert.equal(tomatoSelf.payout, 900);
 
   const peaChili = settleDuoLink([
-    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed" },
-    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed", abilityRoll: 0 },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed", abilityRoll: 0.99 },
   ]);
-  assert.deepEqual(peaChili.extras, [0, 200]);
-  assert.equal(peaChili.total, 200);
-  assert.match(peaChili.note, /豌豆助燃/);
+  assert.deepEqual(peaChili.extras, [0, 150]);
+  assert.equal(peaChili.total, 150);
+  assert.deepEqual(peaChili.sourceIndexes, [0]);
+  assert.match(peaChili.note, /豌豆補給/);
+
+  const pumpkinChili = settleDuoLink([
+    { roleId: "pumpkin", stake: 100, cashAt: 2, payout: 200, status: "cashed", abilityRoll: 0 },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed", abilityRoll: 0.99 },
+  ]);
+  assert.deepEqual(pumpkinChili.extras, [250, 0]);
+  assert.equal(pumpkinChili.total, 250);
+  assert.match(pumpkinChili.note, /南瓜藤蔓/);
 
   const peaResonance = settleDuoLink([
-    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed" },
-    { roleId: "peapod", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed", abilityRoll: 0 },
+    { roleId: "peapod", stake: 100, cashAt: 3, payout: 300, status: "cashed", abilityRoll: 0 },
   ]);
-  assert.deepEqual(peaResonance.extras, [45, 60]);
+  assert.deepEqual(peaResonance.extras, [200, 150]);
+  assert.equal(peaResonance.total, 350);
   assert.equal(settleDuoLink([
-    { roleId: "peapod", stake: 100, cashAt: 1.9, payout: 190, status: "cashed" },
-    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed", abilityRoll: 0.99 },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed", abilityRoll: 0.99 },
   ]).total, 0);
   assert.equal(settleDuoLink([
-    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed", linkAwarded: true },
-    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
+    { roleId: "peapod", stake: 100, cashAt: 2.5, payout: 250, status: "cashed", abilityRoll: 0, linkAwarded: true },
+    { roleId: "chili", stake: 100, cashAt: 6, payout: 600, status: "cashed", abilityRoll: 0.99 },
   ]).total, 0, "a link award must be idempotent");
 });
 
@@ -252,10 +274,9 @@ test("keeps thresholds and showcase forcing honest", () => {
   assert.equal(settleSuccessfulCashout("chili", 100, 5, hitRolls).outcome, "bonus");
   assert.equal(settleSuccessfulCashout("chili", 100, 4.99, hitRolls).outcome, "neutral");
   assert.equal(settleSuccessfulCashout("mushroom", 100, 2, hitRolls).payout, 1600);
-  assert.equal(settleSuccessfulCashout("pumpkin", 100, 2, hitRolls).payout, 210);
-  assert.equal(settleSuccessfulCashout("pumpkin", 100, 4, hitRolls).payout, 475);
-  assert.equal(settleSuccessfulCashout("pumpkin", 100, 6, hitRolls).payout, 850);
-  assert.equal(settleSuccessfulCashout("pumpkin", 100, 6, hitRolls, ["pumpkin", "pumpkin"]).payout, 950);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 2, hitRolls).payout, 200);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 4, hitRolls).payout, 400);
+  assert.equal(settleSuccessfulCashout("pumpkin", 100, 6, hitRolls, ["pumpkin", "pumpkin"]).payout, 600);
   assert.equal(settleCrashRole().payout, 0);
 });
 

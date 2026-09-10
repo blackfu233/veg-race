@@ -30,7 +30,7 @@ type RoleId =
   | "mushroom";
 type SupportId = "ketchup" | "mayonnaise" | "mustard" | "wasabi";
 
-type AbilityRolls = Record<"potato" | "chili" | "pumpkin" | "tomato" | "mushroom" | "target", number>;
+type AbilityRolls = Record<"potato" | "chili" | "pumpkin" | "tomato" | "peapod" | "mushroom" | "target", number>;
 
 type Role = {
   id: RoleId;
@@ -101,9 +101,9 @@ const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, natura
 const roles: Role[] = [
   { id: "potato", name: "馬鈴薯", short: "2× 前成功：28% 派彩×2", detail: "2× 前成功 → 28% 機率派彩×2", accent: "#f0b55b" },
   { id: "chili", name: "辣椒", short: "5× 後成功：34% 派彩×2", detail: "5× 後成功 → 34% 機率派彩×2", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "跑越遠，成功獲利加越多", detail: "2×／4×／6× 成功 → 獲利＋10%／25%／50%", accent: "#ff9d3d" },
+  { id: "pumpkin", name: "南瓜", short: "雙注成功：25%取得另一注50%獲利", detail: "雙注都成功 → 25%機率取得另一注50%獲利", accent: "#ff9d3d" },
   { id: "tomato", name: "番茄", short: "2–5× 自動收：12% 派彩×3", detail: "隨機 2–5× 自動收 → 12% 機率派彩×3", accent: "#ff6358" },
-  { id: "peapod", name: "豌豆莢", short: "2× 後成功，支援另一注連攜", detail: "本注 2× 後成功 → 幫另一注完成連攜加成", accent: "#70d858" },
+  { id: "peapod", name: "豌豆莢", short: "雙注成功：25%把本注獲利送給另一注", detail: "雙注都成功 → 25%機率把本注獲利加給另一注", accent: "#70d858" },
   { id: "mushroom", name: "蘑菇", short: "成功：4.5% 派彩×8", detail: "成功 Cash Out → 4.5% 機率派彩×8 Jackpot", accent: "#8a5abb" },
 ];
 
@@ -121,6 +121,7 @@ const forcedAbilityRolls: AbilityRolls = {
   chili: 0,
   pumpkin: 0,
   tomato: 0,
+  peapod: 0,
   mushroom: 0,
   target: 0.5,
 };
@@ -191,7 +192,7 @@ async function digestHex(value: string) {
 
 async function makeRoundSpec(): Promise<RoundSpec> {
   const seed = crypto.randomUUID();
-  const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "mushroom", "target"] as const;
+  const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target"] as const;
   const [commitment, crashHash, nearMissHash, ...abilityHashes] = await Promise.all([
     digestHex(seed),
     digestHex(seed + ":crash"),
@@ -590,7 +591,6 @@ export default function GameClient() {
     const labels: Partial<Record<RoleId, string>> = {
       potato: "馬鈴薯 · 早收 ×2！",
       chili: "辣椒 · 高倍 ×2！",
-      pumpkin: "南瓜 · 里程加成！",
       tomato: "番茄旋轉收成 ×3！",
       mushroom: "蘑菇 · JACKPOT ×8！",
     };
@@ -616,6 +616,7 @@ export default function GameClient() {
       status: ticket.status,
       placed: ticket.placed,
       linkAwarded: ticket.linkAwarded,
+      abilityRoll: showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[ticketIndex]?.[ticket.roleId] ?? .5,
     }));
     const linkSettlement = gameModeRef.current === "support"
       ? settleSupportLink(settlementTickets, supportIdRef.current)
@@ -635,14 +636,13 @@ export default function GameClient() {
         };
       });
       if (gameModeRef.current === "support") {
-        triggerSupportFx(supportIdRef.current, `${supportById[supportIdRef.current].name} · 支援成功！`);
-      } else {
-        placedIndexes.forEach((ticketIndex, placedIndex) => {
-          const roleId = next[ticketIndex].roleId;
-          if (roleId === "peapod") triggerSkillFx(roleId, ticketIndex, "豌豆彈射 · 連攜支援！");
-          else if ((linkSettlement.extras[placedIndex] ?? 0) > 0) triggerSkillFx(roleId, ticketIndex, `${roleById[roleId].name} · 連攜加成！`);
-        });
-      }
+        if (linkSettlement.supportTriggered) triggerSupportFx(supportIdRef.current, `${supportById[supportIdRef.current].name} · 支援成功！`);
+        linkSettlement.sourceIndexes.forEach((ticketIndex) => triggerSkillFx("pumpkin", ticketIndex, "南瓜藤蔓 · 收成50%獲利！"));
+      } else linkSettlement.sourceIndexes.forEach((placedIndex) => {
+        const ticketIndex = placedIndexes[placedIndex];
+        const roleId = next[ticketIndex].roleId;
+        triggerSkillFx(roleId, ticketIndex, roleId === "peapod" ? "豌豆補給 · 獲利傳送！" : roleId === "pumpkin" ? "南瓜藤蔓 · 收成50%獲利！" : `${roleById[roleId].name} · 連攜加成！`);
+      });
     }
 
     const nextBalance = balanceRef.current + paid + linkSettlement.total;
@@ -652,8 +652,8 @@ export default function GameClient() {
     setTickets(next);
     activateSafeRun(next);
 
-    if (linkSettlement.triggered && gameModeRef.current === "support") showToast(`🥫 ${supportById[supportIdRef.current].name}支援成功！`, `主角追加 +${money(linkSettlement.total)}`, "gold");
-    else if (linkSettlement.triggered) showToast(`🔗 ${linkSettlement.description?.title} 連攜成功！`, `追加獎勵 +${money(linkSettlement.total)}`, "gold");
+    if (linkSettlement.triggered && gameModeRef.current === "support") showToast(`✨ ${linkSettlement.title}`, `主角追加 +${money(linkSettlement.total)}`, "gold");
+    else if (linkSettlement.triggered) showToast(`🔗 ${linkSettlement.title}成功！`, `追加獎勵 +${money(linkSettlement.total)}`, "gold");
     else if (note) showToast(note, `下注 ${index + 1} +${money(paid)}`, skillTone);
     else showToast(`下注 ${index + 1} Cash Out`, `${at.toFixed(2)}× · +${money(paid)}`, "good");
     tone(linkSettlement.triggered ? 1080 : skillTone === "gold" ? 930 : 720, linkSettlement.triggered ? .2 : .13, linkSettlement.triggered ? "triangle" : "sine");
@@ -852,10 +852,10 @@ export default function GameClient() {
     if (!placedCount) return "本局觀戰中";
     if (safeRun.active) return safeRun.extended ? "已全數 Cash Out · Near Miss 安全領跑" : "已全數 Cash Out · 安全領跑";
     if (!runningCount) return "本局已完成結算";
-    if (duoActive) return `${duoDescription.title} · 完成兩邊條件拿加成`;
+    if (duoActive) return duoDescription.shortSummary;
     if (supportActive) return `${selectedSupport.name} · 兩注成功就支援主角`;
     return "在收割者追上前 Cash Out！";
-  }, [duoActive, duoDescription.title, multiplier, phase, placedCount, runningCount, safeRun, selectedSupport.name, supportActive]);
+  }, [duoActive, duoDescription.shortSummary, duoDescription.title, multiplier, phase, placedCount, runningCount, safeRun, selectedSupport.name, supportActive]);
 
   const stageProgress = phase === "betting"
     ? Math.max(4, ((8 - countdown) / 8) * 100)
@@ -1167,6 +1167,11 @@ export default function GameClient() {
             const tomatoAuto = usesTomatoAuto(ticket, ticketIndex, gameMode);
             const roleChoices = gameMode === "support" ? mainRoles : roles;
             const infoAccent = isSupportPanel ? selectedSupport.accent : role.accent;
+            const roleDetail = gameMode === "support" && ticketIndex === 0 && ticket.roleId === "pumpkin"
+              ? "兩注都成功 → 25%取得支援注50%獲利"
+              : gameMode === "duo" && (ticket.roleId === "pumpkin" || ticket.roleId === "peapod")
+                ? duoDescription.roleDetails[ticketIndex]
+                : role.detail;
             return (
               <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") || ticket.linkAwarded ? "skill-triggered" : ""} ${linkedActive ? "has-duo" : ""} ${isSupportPanel ? "support-card" : gameMode === "support" ? "main-card" : ""}`} key={ticketIndex}>
                 <div className={`character-grid ${gameMode === "support" ? "four-grid" : ""}`} aria-label={`下注 ${ticketIndex + 1} 選擇${isSupportPanel ? "支援醬料" : "角色"}`}>
@@ -1200,7 +1205,7 @@ export default function GameClient() {
                   <div className="role-name-row">
                     <strong>{isSupportPanel ? selectedSupport.name : role.name}</strong>
                   </div>
-                  <p>{isSupportPanel ? selectedSupport.detail : role.detail}</p>
+                  <p>{isSupportPanel ? selectedSupport.detail : roleDetail}</p>
                 </div>
 
                 <div className="amount-stepper">
@@ -1318,10 +1323,10 @@ export default function GameClient() {
                 ))}
               </div>
               <div className="ability-sharing-note">
-                <strong>{gameMode === "support" ? "🥫 支援怎麼生效" : "🔗 21 種雙注連攜"}</strong>
+                <strong>{gameMode === "support" ? "🥫 支援怎麼生效" : "🔗 雙注能力怎麼生效"}</strong>
                 <span>{gameMode === "support"
-                  ? "上方是主角、下方是醬料支援。兩注共用同一爆點並可各自 Cash Out；兩注都成功且達成醬料條件，主角再拿額外獲利。"
-                  : "兩注都下注後自動啟動。每注先獨立派彩；兩邊再達成畫面所寫條件，就追加連攜獎勵。任一邊失敗，不會扣掉另一邊已拿到的獎金。"}</span>
+                  ? "上方是主角、下方是醬料支援。兩注共用同一爆點並可各自 Cash Out；兩注都成功且達成醬料條件，主角再拿額外獲利。南瓜觸發時，另追加支援注50%獲利。"
+                  : "兩注選角後，角色卡會直接寫出目前組合的獎勵來源與對象。豌豆把自己的獲利加給另一注；南瓜取得另一注50%獲利。轉移只計算原始獲利，不重複計算其他角色加成。"}</span>
               </div>
               <div className="ability-sharing-note near-miss-note">
                 <strong>🎯 自然 Near Miss</strong>

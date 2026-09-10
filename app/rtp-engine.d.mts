@@ -6,9 +6,9 @@ export type SupportId = "ketchup" | "mayonnaise" | "mustard" | "wasabi";
 export type AbilityRolls = number | Partial<Record<RtpRoleId, number>>;
 export type SettlementResult = { payout: number; note: string; outcome: "neutral" | "bonus"; triggeredRoleIds: RtpRoleId[] };
 export type RtpWager = { roleId: RtpRoleId; stake: number; target: number };
-export type DuoTicket = { roleId: RtpRoleId; stake: number; cashAt: number | null; payout: number; status: string; placed?: boolean; linkAwarded?: boolean };
+export type DuoTicket = { roleId: RtpRoleId; stake: number; cashAt: number | null; payout: number; status: string; placed?: boolean; linkAwarded?: boolean; abilityRoll?: number };
 export type DuoDescription = { key: string; title: string; badge: string; shortSummary: string; summary: string; roleDetails: string[] };
-export type DuoSettlement = { extras: number[]; total: number; note: string; triggered: boolean; description: DuoDescription | null };
+export type DuoSettlement = { extras: number[]; total: number; note: string; title: string; triggered: boolean; sourceIndexes: number[]; supportTriggered: boolean; description: DuoDescription | null };
 export type SupportWager = { stake: number; target: number };
 export type VisualNearMiss = { active: true; extended: boolean; cashAt: number; naturalEnd: number; visualEnd: number };
 

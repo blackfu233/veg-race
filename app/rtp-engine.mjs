@@ -4,9 +4,9 @@ export const MAX_SETTLEMENT_MULTIPLIER = 99;
 export const ROLE_MATH = Object.freeze({
   potato: { triggerChance: 0.28, resonanceChance: 0.5, payoutFactor: 2, maxMultiplier: 2 },
   chili: { triggerChance: 0.34, resonanceChance: 0.55, payoutFactor: 2, minMultiplier: 5 },
-  pumpkin: { tier2: 0.1, tier4: 0.25, tier6: 0.5, resonanceTier2: 0.2, resonanceTier4: 0.4, resonanceTier6: 0.7 },
+  pumpkin: { triggerChance: 0.25, resonanceChance: 0.4, partnerProfitShare: 0.5 },
   tomato: { triggerChance: 0.12, resonanceChance: 0.2, payoutFactor: 3, minTarget: 2, maxTarget: 5 },
-  peapod: { resonanceProfitBonus: 0.3, supportMinimum: 2 },
+  peapod: { triggerChance: 0.25, resonanceChance: 0.4, ownProfitCopy: 1 },
   mushroom: { triggerChance: 0.045, resonanceChance: 0.08, payoutFactor: 8 },
 });
 
@@ -38,28 +38,17 @@ const ROLE_RANK = Object.freeze(Object.fromEntries(ROLE_ORDER.map((roleId, index
 
 const MIXED_LINKS = Object.freeze({
   "potato|chili": { title: "兩端包夾", rate: 0.3, recipients: "both", shortSummary: "早收＋5×成功 → 雙方獲利＋30%", summary: "馬鈴薯在 2× 前成功、辣椒在 5× 後成功 → 兩注獲利＋30%" },
-  "potato|pumpkin": { title: "穩穩長大", rate: 0.2, recipients: "both", shortSummary: "早收＋南瓜4× → 雙方獲利＋20%", summary: "馬鈴薯在 2× 前成功、南瓜在 4× 後成功 → 兩注獲利＋20%" },
   "potato|tomato": { title: "早收等熟", rate: 0.15, recipients: "both", shortSummary: "早收＋番茄成功 → 雙方獲利＋15%", summary: "馬鈴薯在 2× 前成功、番茄自動收成成功 → 兩注獲利＋15%" },
-  "potato|peapod": { title: "豆子補給", rate: 0.3, recipients: "partner", partnerRole: "potato", shortSummary: "豌豆2×＋早收 → 馬鈴薯獲利＋30%", summary: "豌豆莢在 2× 後成功、馬鈴薯在 2× 前成功 → 馬鈴薯獲利＋30%" },
   "potato|mushroom": { title: "小注摸大獎", rate: 0.15, recipients: "both", shortSummary: "早收＋蘑菇成功 → 雙方獲利＋15%", summary: "馬鈴薯在 2× 前成功、蘑菇成功 → 兩注獲利＋15%" },
-  "chili|pumpkin": { title: "高倍豐收", rate: 0.3, recipients: "both", shortSummary: "辣椒5×＋南瓜4× → 雙方獲利＋30%", summary: "辣椒在 5× 後成功、南瓜在 4× 後成功 → 兩注獲利＋30%" },
   "chili|tomato": { title: "命運追高", rate: 0.25, recipients: "both", shortSummary: "辣椒5×＋番茄成功 → 雙方獲利＋25%", summary: "辣椒在 5× 後成功、番茄自動收成成功 → 兩注獲利＋25%" },
-  "chili|peapod": { title: "豌豆助燃", rate: 0.4, recipients: "partner", partnerRole: "chili", shortSummary: "豌豆2×＋辣椒5× → 辣椒獲利＋40%", summary: "豌豆莢在 2× 後成功、辣椒在 5× 後成功 → 辣椒獲利＋40%" },
   "chili|mushroom": { title: "極限大獎", rate: 0.3, recipients: "both", shortSummary: "辣椒5×＋蘑菇成功 → 雙方獲利＋30%", summary: "辣椒在 5× 後成功、蘑菇成功 → 兩注獲利＋30%" },
-  "pumpkin|tomato": { title: "成熟收成", rate: 0.2, recipients: "both", shortSummary: "南瓜4×＋番茄成功 → 雙方獲利＋20%", summary: "南瓜在 4× 後成功、番茄自動收成成功 → 兩注獲利＋20%" },
-  "pumpkin|peapod": { title: "里程補給", rate: 0.3, recipients: "partner", partnerRole: "pumpkin", shortSummary: "豌豆2×＋南瓜4× → 南瓜獲利＋30%", summary: "豌豆莢在 2× 後成功、南瓜在 4× 後成功 → 南瓜獲利＋30%" },
-  "pumpkin|mushroom": { title: "巨型豐收", rate: 0.2, recipients: "both", shortSummary: "南瓜4×＋蘑菇成功 → 雙方獲利＋20%", summary: "南瓜在 4× 後成功、蘑菇成功 → 兩注獲利＋20%" },
-  "tomato|peapod": { title: "自動接豆", rate: 0.25, recipients: "partner", partnerRole: "tomato", shortSummary: "豌豆2×＋番茄成功 → 番茄獲利＋25%", summary: "豌豆莢在 2× 後成功、番茄自動收成成功 → 番茄獲利＋25%" },
   "tomato|mushroom": { title: "命運頭獎", rate: 0.15, recipients: "both", shortSummary: "番茄＋蘑菇成功 → 雙方獲利＋15%", summary: "番茄自動收成成功、蘑菇成功 → 兩注獲利＋15%" },
-  "peapod|mushroom": { title: "幸運孢子", rate: 0.25, recipients: "partner", partnerRole: "mushroom", shortSummary: "豌豆2×＋蘑菇成功 → 蘑菇獲利＋25%", summary: "豌豆莢在 2× 後成功、蘑菇成功 → 蘑菇獲利＋25%" },
 });
 
 const SAME_ROLE_DESCRIPTIONS = Object.freeze({
   potato: { title: "馬鈴薯共鳴", shortSummary: "兩注2×前成功 → 各50%派彩×2", summary: "雙馬鈴薯上場：各自在 2× 前成功時，50% 機率派彩×2" },
   chili: { title: "辣椒共鳴", shortSummary: "兩注5×後成功 → 各55%派彩×2", summary: "雙辣椒上場：各自在 5× 後成功時，55% 機率派彩×2" },
-  pumpkin: { title: "南瓜共鳴", shortSummary: "兩注里程加成 → 20%／40%／70%", summary: "雙南瓜上場：2×／4×／6× 成功時，獲利＋20%／40%／70%" },
   tomato: { title: "番茄共鳴", shortSummary: "兩注自動收成 → ×3機率升至20%", summary: "雙番茄上場：各自隨機 2–5× 自動收成，20% 機率派彩×3" },
-  peapod: { title: "豌豆共鳴", shortSummary: "兩注2×後成功 → 雙方獲利＋30%", summary: "兩注都在 2× 後成功 → 兩注獲利＋30%" },
   mushroom: { title: "蘑菇共鳴", shortSummary: "兩注成功 → ×8機率升至8%", summary: "雙蘑菇上場：各自成功時，8% 機率派彩×8" },
 });
 
@@ -106,13 +95,6 @@ function normalizeWagers(wagers) {
     .map((wager) => ({ roleId: wager.roleId, stake: wager.stake, target: safeTarget(wager.target) }));
 }
 
-function pumpkinProfitRate(multiplier, resonance) {
-  if (multiplier >= 6) return resonance ? ROLE_MATH.pumpkin.resonanceTier6 : ROLE_MATH.pumpkin.tier6;
-  if (multiplier >= 4) return resonance ? ROLE_MATH.pumpkin.resonanceTier4 : ROLE_MATH.pumpkin.tier4;
-  if (multiplier >= 2) return resonance ? ROLE_MATH.pumpkin.resonanceTier2 : ROLE_MATH.pumpkin.tier2;
-  return 0;
-}
-
 function ownTriggerChance(roleId, roundRoleIds) {
   const resonance = hasResonance(roleId, roundRoleIds);
   if (roleId === "potato") return resonance ? ROLE_MATH.potato.resonanceChance : ROLE_MATH.potato.triggerChance;
@@ -125,9 +107,42 @@ function ownTriggerChance(roleId, roundRoleIds) {
 function roleConditionMet(roleId, multiplier) {
   if (roleId === "potato") return multiplier < ROLE_MATH.potato.maxMultiplier;
   if (roleId === "chili") return multiplier >= ROLE_MATH.chili.minMultiplier;
-  if (roleId === "pumpkin") return multiplier >= 4;
-  if (roleId === "peapod") return multiplier >= ROLE_MATH.peapod.supportMinimum;
   return roleId === "tomato" || roleId === "mushroom";
+}
+
+function transferChance(roleId, roundRoleIds) {
+  const math = ROLE_MATH[roleId];
+  return hasResonance(roleId, roundRoleIds) ? math.resonanceChance : math.triggerChance;
+}
+
+function baseProfit(wager) {
+  return Math.max(0, wager.stake * (safeTarget(wager.cashAt ?? wager.target) - 1));
+}
+
+function describeTransferPair(pair) {
+  const names = pair.map((roleId) => ROLE_NAMES[roleId]);
+  const peaCount = pair.filter((roleId) => roleId === "peapod").length;
+  const pumpkinCount = pair.filter((roleId) => roleId === "pumpkin").length;
+  const peaChance = Math.round(transferChance("peapod", pair) * 100);
+  const pumpkinChance = Math.round(transferChance("pumpkin", pair) * 100);
+  const title = peaCount === 2 ? "雙豆補給" : pumpkinCount === 2 ? "雙藤收成" : peaCount && pumpkinCount ? "豆藤連攜" : peaCount ? `${names.find((name) => name !== "豌豆莢")}補給` : `${names.find((name) => name !== "南瓜")}藤蔓`;
+  const shortSummary = peaCount && pumpkinCount
+    ? `雙方成功：豌豆${peaChance}%送獲利／南瓜${pumpkinChance}%收一半`
+    : peaCount === 2
+      ? `雙方成功 → 各${peaChance}%把獲利送給對方`
+      : pumpkinCount === 2
+        ? `雙方成功 → 各${pumpkinChance}%取得對方50%獲利`
+        : peaCount
+          ? `雙方成功 → 豌豆${peaChance}%把獲利送給${names.find((name) => name !== "豌豆莢")}`
+          : `雙方成功 → 南瓜${pumpkinChance}%取得${names.find((name) => name !== "南瓜")}50%獲利`;
+  const roleDetails = pair.map((roleId, index) => {
+    const partnerName = names[1 - index];
+    if (roleId === "peapod") return `雙注都成功 → ${peaChance}%把本注獲利加給${partnerName}`;
+    if (roleId === "pumpkin") return `雙注都成功 → ${pumpkinChance}%取得${partnerName}的50%獲利`;
+    if (peaCount) return `豌豆觸發 → 本注再加上豌豆的同額獲利`;
+    return `南瓜觸發 → 複製本注50%獲利給南瓜，不扣本注`;
+  });
+  return { title, shortSummary, summary: `${roleDetails[0]}；${roleDetails[1]}`, roleDetails };
 }
 
 function expectedOwnFactor(roleId, multiplier, roundRoleIds) {
@@ -149,6 +164,7 @@ function expectedOwnFactor(roleId, multiplier, roundRoleIds) {
 export function describeDuoPair(roleIds) {
   const pair = normalizedRolePair(roleIds?.[0], roleIds);
   if (pair.length < 2) return { key: "", title: "再選一注", badge: "連攜預覽", shortSummary: "兩注都下注後，自動啟動角色連攜", summary: "兩注都下注後，依角色組合自動啟動連攜", roleDetails: ["等待第二隻角色", "等待第二隻角色"] };
+  if (pair.some((roleId) => roleId === "pumpkin" || roleId === "peapod")) return { key: pairKey(pair), ...describeTransferPair(pair), badge: pair[0] === pair[1] ? "同角共鳴" : "雙角連攜" };
   if (pair[0] === pair[1]) {
     const description = SAME_ROLE_DESCRIPTIONS[pair[0]];
     return { key: pairKey(pair), ...description, badge: "同角共鳴", roleDetails: [description.summary, description.summary] };
@@ -211,14 +227,6 @@ export function settleSuccessfulCashout(roleId, stake, multiplier, rolls, roundR
     notes.push(`${resonance ? "蘑菇共鳴" : "蘑菇"}：JACKPOT派彩×8`);
     triggeredRoleIds.push(roleId);
   }
-  if (roleId === "pumpkin") {
-    const rate = pumpkinProfitRate(safeMultiplier, resonance);
-    if (rate > 0) {
-      payout += Math.max(0, payout - safeStake) * rate;
-      notes.push(`${resonance ? "南瓜共鳴" : "南瓜"}：里程獲利＋${Math.round(rate * 100)}%`);
-      triggeredRoleIds.push(roleId);
-    }
-  }
   return result(payout, notes, triggeredRoleIds);
 }
 
@@ -229,9 +237,7 @@ export function settleCrashRole() {
 export function expectedSuccessfulPayout(roleId, stake, multiplier, roundRoleIds = [roleId]) {
   const safeStake = Math.max(0, stake);
   const safeMultiplier = safeTarget(multiplier);
-  let payout = safeStake * safeMultiplier * expectedOwnFactor(roleId, safeMultiplier, roundRoleIds);
-  if (roleId === "pumpkin") payout += Math.max(0, payout - safeStake) * pumpkinProfitRate(safeMultiplier, hasResonance(roleId, roundRoleIds));
-  return payout;
+  return safeStake * safeMultiplier * expectedOwnFactor(roleId, safeMultiplier, roundRoleIds);
 }
 
 export function expectedCrashPayout() {
@@ -239,7 +245,7 @@ export function expectedCrashPayout() {
 }
 
 function emptyLinkResult(description = null) {
-  return { extras: [0, 0], total: 0, note: "", triggered: false, description };
+  return { extras: [0, 0], total: 0, note: "", title: "", triggered: false, sourceIndexes: [], supportTriggered: false, description };
 }
 
 function supportConditionMet(supportId, mainTarget, supportTarget) {
@@ -259,16 +265,32 @@ export function settleSupportLink(tickets, supportId) {
   const support = tickets[1];
   if (!main || !support || main.placed === false || support.placed === false
     || main.status !== "cashed" || support.status !== "cashed"
-    || main.linkAwarded || support.linkAwarded
-    || !supportConditionMet(supportId, main.cashAt, support.cashAt)) return emptyLinkResult();
-  const math = SUPPORT_MATH[supportId];
-  const extra = Math.max(0, main.payout - main.stake) * math.profitBonus;
-  if (extra <= 0) return emptyLinkResult();
+    || main.linkAwarded || support.linkAwarded) return emptyLinkResult();
+  const extras = [0, 0];
+  const notes = [];
+  const sourceIndexes = [];
+  let supportTriggered = false;
+  if (supportConditionMet(supportId, main.cashAt, support.cashAt)) {
+    const math = SUPPORT_MATH[supportId];
+    extras[0] += Math.max(0, main.payout - main.stake) * math.profitBonus;
+    notes.push(`${SUPPORT_NAMES[supportId]}支援：主角獲利＋${Math.round(math.profitBonus * 100)}%`);
+    supportTriggered = true;
+  }
+  if (main.roleId === "pumpkin" && clampUnit(main.abilityRoll) < ROLE_MATH.pumpkin.triggerChance) {
+    extras[0] += baseProfit(support) * ROLE_MATH.pumpkin.partnerProfitShare;
+    notes.push("南瓜藤蔓：追加支援注50%獲利");
+    sourceIndexes.push(0);
+  }
+  const total = extras[0];
+  if (total <= 0) return emptyLinkResult();
   return {
-    extras: [extra, 0],
-    total: extra,
-    note: `${SUPPORT_NAMES[supportId]}支援：主角獲利＋${Math.round(math.profitBonus * 100)}%`,
+    extras,
+    total,
+    note: notes.join(" · "),
+    title: supportTriggered && sourceIndexes.length ? "醬料＋藤蔓雙重加成" : supportTriggered ? `${SUPPORT_NAMES[supportId]}支援成功` : "南瓜藤蔓收成",
     triggered: true,
+    sourceIndexes,
+    supportTriggered,
     description: null,
   };
 }
@@ -278,51 +300,55 @@ export function settleDuoLink(tickets) {
   if (active.length !== 2 || active.some((ticket) => ticket.status !== "cashed" || ticket.linkAwarded)) return emptyLinkResult();
   const roleIds = active.map((ticket) => ticket.roleId);
   const description = describeDuoPair(roleIds);
-  if (roleIds[0] === roleIds[1] && roleIds[0] !== "peapod") return emptyLinkResult(description);
-  if (!active.every((ticket) => roleConditionMet(ticket.roleId, safeTarget(ticket.cashAt)))) return emptyLinkResult(description);
-
-  let rate;
-  let recipientIndexes;
-  if (roleIds[0] === "peapod" && roleIds[1] === "peapod") {
-    rate = ROLE_MATH.peapod.resonanceProfitBonus;
-    recipientIndexes = [0, 1];
+  const extras = [0, 0];
+  const notes = [];
+  const sourceIndexes = [];
+  if (roleIds.some((roleId) => roleId === "pumpkin" || roleId === "peapod")) {
+    active.forEach((ticket, index) => {
+      const partnerIndex = 1 - index;
+      if (ticket.roleId === "peapod" && clampUnit(ticket.abilityRoll) < transferChance("peapod", roleIds)) {
+        extras[partnerIndex] += baseProfit(ticket) * ROLE_MATH.peapod.ownProfitCopy;
+        notes.push(`豌豆補給：把本注獲利加給${ROLE_NAMES[active[partnerIndex].roleId]}`);
+        sourceIndexes.push(index);
+      }
+      if (ticket.roleId === "pumpkin" && clampUnit(ticket.abilityRoll) < transferChance("pumpkin", roleIds)) {
+        extras[index] += baseProfit(active[partnerIndex]) * ROLE_MATH.pumpkin.partnerProfitShare;
+        notes.push(`南瓜藤蔓：追加${ROLE_NAMES[active[partnerIndex].roleId]}50%獲利`);
+        sourceIndexes.push(index);
+      }
+    });
   } else {
+    if (roleIds[0] === roleIds[1] || !active.every((ticket) => roleConditionMet(ticket.roleId, safeTarget(ticket.cashAt)))) return emptyLinkResult(description);
     const link = MIXED_LINKS[pairKey(roleIds)];
     if (!link) return emptyLinkResult(description);
-    rate = link.rate;
-    recipientIndexes = link.recipients === "both"
-      ? [0, 1]
-      : active.flatMap((ticket, index) => ticket.roleId === link.partnerRole ? [index] : []);
+    const recipientIndexes = link.recipients === "both" ? [0, 1] : active.flatMap((ticket, index) => ticket.roleId === link.partnerRole ? [index] : []);
+    for (const index of recipientIndexes) extras[index] = Math.max(0, active[index].payout - active[index].stake) * link.rate;
+    sourceIndexes.push(...recipientIndexes);
+    notes.push(`${description.title}：${description.summary}`);
   }
-  const extras = [0, 0];
-  for (const index of recipientIndexes) extras[index] = Math.max(0, active[index].payout - active[index].stake) * rate;
   const total = extras[0] + extras[1];
   if (total <= 0) return emptyLinkResult(description);
-  return { extras, total, note: `${description.title}：${description.summary}`, triggered: true, description };
+  return { extras, total, note: notes.join(" · "), title: description.title, triggered: true, sourceIndexes: [...new Set(sourceIndexes)], supportTriggered: false, description };
 }
 
 function expectedLinkExtra(active, roundRoleIds) {
   if (active.length !== 2) return 0;
   const [first, second] = active;
-  if (first.roleId === second.roleId && first.roleId !== "peapod") return 0;
-  if (!active.every((wager) => roleConditionMet(wager.roleId, wager.target))) return 0;
-  let rate;
-  let recipientIndexes;
-  if (first.roleId === "peapod" && second.roleId === "peapod") {
-    rate = ROLE_MATH.peapod.resonanceProfitBonus;
-    recipientIndexes = [0, 1];
-  } else {
-    const link = MIXED_LINKS[pairKey(roundRoleIds)];
-    if (!link) return 0;
-    rate = link.rate;
-    recipientIndexes = link.recipients === "both"
-      ? [0, 1]
-      : active.flatMap((wager, index) => wager.roleId === link.partnerRole ? [index] : []);
+  if (roundRoleIds.some((roleId) => roleId === "pumpkin" || roleId === "peapod")) {
+    return active.reduce((sum, wager, index) => {
+      if (wager.roleId === "peapod") return sum + transferChance("peapod", roundRoleIds) * baseProfit(wager) * ROLE_MATH.peapod.ownProfitCopy;
+      if (wager.roleId === "pumpkin") return sum + transferChance("pumpkin", roundRoleIds) * baseProfit(active[1 - index]) * ROLE_MATH.pumpkin.partnerProfitShare;
+      return sum;
+    }, 0);
   }
+  if (first.roleId === second.roleId || !active.every((wager) => roleConditionMet(wager.roleId, wager.target))) return 0;
+  const link = MIXED_LINKS[pairKey(roundRoleIds)];
+  if (!link) return 0;
+  const recipientIndexes = link.recipients === "both" ? [0, 1] : active.flatMap((wager, index) => wager.roleId === link.partnerRole ? [index] : []);
   return recipientIndexes.reduce((sum, index) => {
     const wager = active[index];
     const payout = expectedSuccessfulPayout(wager.roleId, wager.stake, wager.target, roundRoleIds);
-    return sum + Math.max(0, payout - wager.stake) * rate;
+    return sum + Math.max(0, payout - wager.stake) * link.rate;
   }, 0);
 }
 
@@ -374,6 +400,10 @@ function supportRoundParts(mainWager, supportWager, supportId) {
     const conditionalMainPayout = expectedSuccessfulPayout(main.roleId, main.stake, main.target, [main.roleId]);
     const conditionalExtra = Math.max(0, conditionalMainPayout - main.stake) * SUPPORT_MATH[supportId].profitBonus;
     baseCoefficient += conditionalExtra / Math.max(main.target, support.target);
+  }
+  if (main?.roleId === "pumpkin" && support) {
+    const pumpkinExtra = ROLE_MATH.pumpkin.triggerChance * baseProfit(support) * ROLE_MATH.pumpkin.partnerProfitShare;
+    baseCoefficient += pumpkinExtra / Math.max(main.target, support.target);
   }
   return { totalStake, baseCoefficient };
 }
