@@ -19,20 +19,6 @@ export const ROLE_NAMES = Object.freeze({
   mushroom: "蘑菇",
 });
 
-export const SUPPORT_MATH = Object.freeze({
-  ketchup: { profitBonus: 0.2, supportMin: 2, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
-  mayonnaise: { profitBonus: 0.12, supportMin: 1.01, supportMax: 2, mainMin: 1.01, mainMax: 99.999 },
-  mustard: { profitBonus: 0.35, supportMin: 3, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
-  wasabi: { profitBonus: 0.6, supportMin: 5, supportMax: 99.999, mainMin: 1.01, mainMax: 99.999 },
-});
-
-export const SUPPORT_NAMES = Object.freeze({
-  ketchup: "番茄醬",
-  mayonnaise: "美乃滋",
-  mustard: "芥末醬",
-  wasabi: "山葵醬",
-});
-
 const ROLE_ORDER = Object.freeze(Object.keys(ROLE_MATH));
 const ROLE_RANK = Object.freeze(Object.fromEntries(ROLE_ORDER.map((roleId, index) => [roleId, index])));
 const MANUAL_TARGET_BREAKPOINTS = Object.freeze([1.01, 1.99, 2, 2.99, 3, 4.99, 5, MAX_SETTLEMENT_MULTIPLIER]);
@@ -252,41 +238,7 @@ export function expectedCrashPayout() {
 }
 
 function emptyLinkResult(description = null) {
-  return { extras: [0, 0], total: 0, note: "", title: "", triggered: false, sourceIndexes: [], supportTriggered: false, description };
-}
-
-function supportConditionMet(supportId, mainTarget, supportTarget) {
-  const support = SUPPORT_MATH[supportId];
-  if (!support) return false;
-  const safeMainTarget = safeTarget(mainTarget);
-  const safeSupportTarget = safeTarget(supportTarget);
-  return safeMainTarget >= support.mainMin
-    && safeMainTarget < support.mainMax
-    && safeSupportTarget >= support.supportMin
-    && safeSupportTarget < support.supportMax;
-}
-
-export function settleSupportLink(tickets, supportId) {
-  if (!Array.isArray(tickets) || tickets.length < 2) return emptyLinkResult();
-  const main = tickets[0];
-  const support = tickets[1];
-  if (!main || !support || main.placed === false || support.placed === false
-    || main.status !== "cashed" || support.status !== "cashed"
-    || main.linkAwarded || support.linkAwarded
-    || !supportConditionMet(supportId, main.cashAt, support.cashAt)) return emptyLinkResult();
-  const math = SUPPORT_MATH[supportId];
-  const total = Math.max(0, main.payout - main.stake) * math.profitBonus;
-  if (total <= 0) return emptyLinkResult();
-  return {
-    extras: [total, 0],
-    total,
-    note: `${SUPPORT_NAMES[supportId]}支援：主角獲利＋${Math.round(math.profitBonus * 100)}%`,
-    title: `${SUPPORT_NAMES[supportId]}支援成功`,
-    triggered: true,
-    sourceIndexes: [],
-    supportTriggered: true,
-    description: null,
-  };
+  return { extras: [0, 0], total: 0, note: "", title: "", triggered: false, sourceIndexes: [], description };
 }
 
 export function settleDuoLink(tickets) {
@@ -322,7 +274,7 @@ export function settleDuoLink(tickets) {
   }
   const total = extras[0] + extras[1];
   if (total <= 0) return emptyLinkResult(description);
-  return { extras, total, note: notes.join(" · "), title: description.title, triggered: true, sourceIndexes: [...new Set(sourceIndexes)], supportTriggered: false, description };
+  return { extras, total, note: notes.join(" · "), title: description.title, triggered: true, sourceIndexes: [...new Set(sourceIndexes)], description };
 }
 
 function expectedLinkExtra(active, roundRoleIds) {
@@ -383,61 +335,6 @@ export function expectedRoundReturn(wagers, baseRtp) {
 
 export function calibrateRoundBaseRtp(wagers) {
   const { totalStake, baseCoefficient } = manualSafeRoundParts(wagers);
-  if (totalStake <= 0 || baseCoefficient <= 0) return TARGET_RTP;
-  return Math.min(TARGET_RTP, Math.max(Number.EPSILON, TARGET_RTP * totalStake / baseCoefficient));
-}
-
-function supportRoundParts(mainWager, supportWager, supportId) {
-  const hasMain = mainWager
-    && Object.hasOwn(ROLE_MATH, mainWager.roleId)
-    && Number.isFinite(mainWager.stake)
-    && mainWager.stake > 0;
-  const hasSupport = supportWager
-    && Number.isFinite(supportWager.stake)
-    && supportWager.stake > 0;
-  const main = hasMain
-    ? { roleId: mainWager.roleId, stake: mainWager.stake, target: safeTarget(mainWager.target), manual: mainWager.manual === true }
-    : null;
-  const support = hasSupport
-    ? { stake: supportWager.stake, target: safeTarget(supportWager.target), manual: supportWager.manual === true }
-    : null;
-  const totalStake = (main?.stake ?? 0) + (support?.stake ?? 0);
-  let baseCoefficient = 0;
-  if (main) baseCoefficient += expectedSuccessfulPayout(main.roleId, main.stake, main.target, [main.roleId]) / main.target;
-  if (support) baseCoefficient += support.stake;
-  if (main && support && supportConditionMet(supportId, main.target, support.target)) {
-    const conditionalMainPayout = expectedSuccessfulPayout(main.roleId, main.stake, main.target, [main.roleId]);
-    const conditionalExtra = Math.max(0, conditionalMainPayout - main.stake) * SUPPORT_MATH[supportId].profitBonus;
-    baseCoefficient += conditionalExtra / Math.max(main.target, support.target);
-  }
-  return { totalStake, baseCoefficient };
-}
-
-function manualSafeSupportRoundParts(mainWager, supportWager, supportId) {
-  const fixedTargets = [mainWager, supportWager].filter((wager) => wager && wager.manual !== true).map((wager) => safeTarget(wager.target));
-  const mainTargets = mainWager?.manual === true ? manualTargetCandidates(fixedTargets) : [mainWager?.target ?? 2];
-  const supportTargets = supportWager?.manual === true ? manualTargetCandidates(fixedTargets) : [supportWager?.target ?? 2];
-  let result = supportRoundParts(mainWager, supportWager, supportId);
-  for (const mainTarget of mainTargets) {
-    for (const supportTarget of supportTargets) {
-      const candidate = supportRoundParts(
-        mainWager ? { ...mainWager, target: mainTarget } : null,
-        supportWager ? { ...supportWager, target: supportTarget } : null,
-        supportId,
-      );
-      if (candidate.baseCoefficient > result.baseCoefficient) result = candidate;
-    }
-  }
-  return result;
-}
-
-export function expectedSupportRoundReturn(mainWager, supportWager, supportId, baseRtp) {
-  const { baseCoefficient } = supportRoundParts(mainWager, supportWager, supportId);
-  return Math.max(0, baseRtp) * baseCoefficient;
-}
-
-export function calibrateSupportRoundBaseRtp(mainWager, supportWager, supportId) {
-  const { totalStake, baseCoefficient } = manualSafeSupportRoundParts(mainWager, supportWager, supportId);
   if (totalStake <= 0 || baseCoefficient <= 0) return TARGET_RTP;
   return Math.min(TARGET_RTP, Math.max(Number.EPSILON, TARGET_RTP * totalStake / baseCoefficient));
 }

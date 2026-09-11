@@ -6,20 +6,17 @@ import CanvasRunner from "./canvas-runner";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "./ticket-actions.mjs";
 import {
   calibrateRoundBaseRtp,
-  calibrateSupportRoundBaseRtp,
   crashPointFromUnit,
   createVisualNearMiss,
   describeDuoPair,
   MAX_SETTLEMENT_MULTIPLIER,
   settleDuoLink,
-  settleSupportLink,
   settleCrashRole,
   settleSuccessfulCashout,
   TARGET_RTP,
 } from "./rtp-engine.mjs";
 
 type Phase = "betting" | "running" | "crashed";
-type GameMode = "duo" | "support";
 type TicketStatus = "idle" | "placed" | "running" | "cashed" | "lost";
 type RoleId =
   | "potato"
@@ -28,7 +25,6 @@ type RoleId =
   | "tomato"
   | "peapod"
   | "mushroom";
-type SupportId = "ketchup" | "mayonnaise" | "mustard" | "wasabi";
 
 type AbilityRolls = Record<"potato" | "chili" | "pumpkin" | "tomato" | "peapod" | "mushroom" | "target", number>;
 
@@ -40,24 +36,10 @@ type Role = {
   accent: string;
 };
 
-type Support = {
-  id: SupportId;
-  name: string;
-  short: string;
-  detail: string;
-  accent: string;
-};
-
 type SkillFx = {
   id: number;
   roleId: RoleId;
   ticketIndex: number | null;
-  label: string;
-};
-
-type SupportFx = {
-  id: number;
-  supportId: SupportId;
   label: string;
 };
 
@@ -107,15 +89,6 @@ const roles: Role[] = [
   { id: "mushroom", name: "蘑菇", short: "成功：4.5% 派彩×8", detail: "成功 Cash Out → 4.5% 機率派彩×8 Jackpot", accent: "#8a5abb" },
 ];
 
-const mainRoleIds: RoleId[] = ["potato", "chili", "mushroom", "tomato"];
-const mainRoles = roles.filter((role) => mainRoleIds.includes(role.id));
-const supports: Support[] = [
-  { id: "ketchup", name: "番茄醬", short: "支援2×後成功：主角獲利＋20%", detail: "支援注 2× 後成功 → 主角獲利＋20%", accent: "#ed4a42" },
-  { id: "mayonnaise", name: "美乃滋", short: "支援2×前成功：主角獲利＋12%", detail: "支援注 2× 前成功 → 主角獲利＋12%", accent: "#e5b45c" },
-  { id: "mustard", name: "芥末醬", short: "支援3×後成功：主角獲利＋35%", detail: "支援注 3× 後成功 → 主角獲利＋35%", accent: "#d8a91b" },
-  { id: "wasabi", name: "山葵醬", short: "支援5×後成功：主角獲利＋60%", detail: "支援注 5× 後成功 → 主角獲利＋60%", accent: "#55a84f" },
-];
-
 const forcedAbilityRolls: AbilityRolls = {
   potato: 0,
   chili: 0,
@@ -127,7 +100,6 @@ const forcedAbilityRolls: AbilityRolls = {
 };
 
 const roleById = Object.fromEntries(roles.map((role) => [role.id, role])) as Record<RoleId, Role>;
-const supportById = Object.fromEntries(supports.map((support) => [support.id, support])) as Record<SupportId, Support>;
 
 function blankTicket(index: number): Ticket {
   return {
@@ -148,14 +120,14 @@ function blankTicket(index: number): Ticket {
   };
 }
 
-function ticketStrategyTarget(ticket: Ticket, ticketIndex: number, mode: GameMode) {
-  return (mode === "duo" || ticketIndex === 0) && ticket.roleId === "tomato" && ticket.autoRoleTarget
+function ticketStrategyTarget(ticket: Ticket) {
+  return ticket.roleId === "tomato" && ticket.autoRoleTarget
     ? ticket.autoRoleTarget
     : ticket.autoCashTarget;
 }
 
-function usesTomatoAuto(ticket: Ticket, ticketIndex: number, mode: GameMode) {
-  return (mode === "duo" || ticketIndex === 0) && ticket.roleId === "tomato";
+function usesTomatoAuto(ticket: Ticket) {
+  return ticket.roleId === "tomato";
 }
 
 function selectedRoundRoleIds(tickets: Ticket[]) {
@@ -164,12 +136,12 @@ function selectedRoundRoleIds(tickets: Ticket[]) {
     .map((ticket) => ticket.roleId);
 }
 
-function ticketsToRtpWagers(tickets: Ticket[], mode: GameMode) {
-  return tickets.flatMap((ticket, ticketIndex) => ticket.enabled && ticket.placed ? [{
+function ticketsToRtpWagers(tickets: Ticket[]) {
+  return tickets.flatMap((ticket) => ticket.enabled && ticket.placed ? [{
       roleId: ticket.roleId,
       stake: ticket.amount,
-      target: ticketStrategyTarget(ticket, ticketIndex, mode),
-      manual: !usesTomatoAuto(ticket, ticketIndex, mode) && !ticket.autoCash,
+      target: ticketStrategyTarget(ticket),
+      manual: !usesTomatoAuto(ticket) && !ticket.autoCash,
     }] : []);
 }
 
@@ -228,24 +200,6 @@ function Sprite({ roleId, className = "" }: { roleId: RoleId; className?: string
   );
 }
 
-function SupportSprite({ supportId, className = "" }: { supportId: SupportId; className?: string }) {
-  const support = supportById[supportId];
-  return (
-    <div className={`support-sprite ${className}`}>
-      <Image src={`/support-icons/${supportId}.webp?v=1`} width={384} height={384} sizes="(max-width: 440px) 48px, 58px" alt={support.name} draggable={false} />
-    </div>
-  );
-}
-
-function SupportRunner({ supportId, active }: { supportId: SupportId; active: boolean }) {
-  return (
-    <div className={`support-runner-art ${active ? "is-running" : ""}`}>
-      <SupportSprite supportId={supportId} />
-      <span className="support-drops"><i /><i /><i /><i /></span>
-    </div>
-  );
-}
-
 function SkillEffect({ effect, x }: { effect: SkillFx; x: number }) {
   return (
     <div
@@ -259,16 +213,6 @@ function SkillEffect({ effect, x }: { effect: SkillFx; x: number }) {
         <Image className="fx-role-art fx-role-copy" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
         <span className="fx-particles"><i /><i /><i /><i /><i /><i /><i /><i /></span>
       </span>
-      <strong>{effect.label}</strong>
-    </div>
-  );
-}
-
-function SupportEffect({ effect, x }: { effect: SupportFx; x: number }) {
-  return (
-    <div className={`support-fx support-fx-${effect.supportId}`} style={{ "--fx-x": `${x}%` } as CSSProperties} role="status" aria-label={effect.label}>
-      <span className="support-fx-art"><SupportSprite supportId={effect.supportId} /></span>
-      <span className="support-splash"><i /><i /><i /><i /><i /><i /></span>
       <strong>{effect.label}</strong>
     </div>
   );
@@ -289,11 +233,8 @@ export default function GameClient() {
   const [fairOpen, setFairOpen] = useState(false);
   const [muted, setMuted] = useState(false);
   const [showcaseMode, setShowcaseMode] = useState(false);
-  const [gameMode, setGameMode] = useState<GameMode>("duo");
-  const [supportId, setSupportId] = useState<SupportId>("ketchup");
   const [toast, setToast] = useState<{ title: string; body: string; tone: "good" | "bad" | "gold" } | null>(null);
   const [skillEffects, setSkillEffects] = useState<SkillFx[]>([]);
-  const [supportEffects, setSupportEffects] = useState<SupportFx[]>([]);
   const [safeRun, setSafeRun] = useState<SafeRun>(idleSafeRun);
 
   const ticketsRef = useRef(tickets);
@@ -301,8 +242,6 @@ export default function GameClient() {
   const phaseRef = useRef<Phase>(phase);
   const roundSpecRef = useRef<RoundSpec | null>(roundSpec);
   const showcaseModeRef = useRef(showcaseMode);
-  const gameModeRef = useRef<GameMode>(gameMode);
-  const supportIdRef = useRef<SupportId>(supportId);
   const safeRunRef = useRef<SafeRun>(idleSafeRun);
   const betDeadlineRef = useRef(0);
   const cancelledAutoBetRef = useRef(new Set<number>());
@@ -318,8 +257,6 @@ export default function GameClient() {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { roundSpecRef.current = roundSpec; }, [roundSpec]);
   useEffect(() => { showcaseModeRef.current = showcaseMode; }, [showcaseMode]);
-  useEffect(() => { gameModeRef.current = gameMode; }, [gameMode]);
-  useEffect(() => { supportIdRef.current = supportId; }, [supportId]);
   useEffect(() => { safeRunRef.current = safeRun; }, [safeRun]);
 
   useEffect(() => {
@@ -393,17 +330,6 @@ export default function GameClient() {
     skillFxTimersRef.current.push(timer);
   }, []);
 
-  const triggerSupportFx = useCallback((selectedSupportId: SupportId, label: string) => {
-    skillFxIdRef.current += 1;
-    const id = skillFxIdRef.current;
-    setSupportEffects((current) => [...current, { id, supportId: selectedSupportId, label }]);
-    const timer = setTimeout(() => {
-      setSupportEffects((current) => current.filter((effect) => effect.id !== id));
-      skillFxTimersRef.current = skillFxTimersRef.current.filter((currentTimer) => currentTimer !== timer);
-    }, 1800);
-    skillFxTimersRef.current.push(timer);
-  }, []);
-
   const tone = useCallback((frequency: number, duration = 0.09, type: OscillatorType = "sine") => {
     if (muted || typeof window === "undefined") return;
     const AudioCtx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -445,33 +371,6 @@ export default function GameClient() {
     haptic(enabled ? [18, 24, 18] : 14);
   }, [haptic, showToast, tone]);
 
-  const switchGameMode = useCallback((nextMode: GameMode) => {
-    if (nextMode === gameModeRef.current) {
-      setRulesOpen(false);
-      return;
-    }
-    if (phaseRef.current !== "betting" || ticketsRef.current.some((ticket) => ticket.placed)) {
-      showToast("本局已鎖定", "請在下一局下注前切換玩法", "bad");
-      tone(210, .1);
-      return;
-    }
-    gameModeRef.current = nextMode;
-    setGameMode(nextMode);
-    const nextTickets = ticketsRef.current.map((ticket, index) => ({
-      ...ticket,
-      roleId: index === 0 ? (mainRoleIds.includes(ticket.roleId) ? ticket.roleId : "potato") : nextMode === "duo" ? "chili" : "potato",
-      autoRoleTarget: null,
-      autoCash: ticket.autoCash ? ticket.autoCashTarget : null,
-      note: "",
-    }));
-    ticketsRef.current = nextTickets;
-    setTickets(nextTickets);
-    setRulesOpen(false);
-    showToast(nextMode === "support" ? "主角＋支援模式" : "雙蔬菜連攜模式", nextMode === "support" ? "上方選主角，下方選醬料支援" : "兩注都可選蔬菜角色", "gold");
-    tone(780, .13, "triangle");
-    haptic([14, 20, 14]);
-  }, [haptic, showToast, tone]);
-
   useEffect(() => () => {
     if (audioContextRef.current) void audioContextRef.current.close().catch(() => undefined);
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -507,14 +406,12 @@ export default function GameClient() {
       remaining: 1,
       note: "",
       linkAwarded: false,
-      autoRoleTarget: (gameModeRef.current === "duo" || ticketIndex === 0) && current.roleId === "tomato" ? Math.round((2 + targetRoll * 3) * 100) / 100 : null,
+      autoRoleTarget: current.roleId === "tomato" ? Math.round((2 + targetRoll * 3) * 100) / 100 : null,
     } : current);
     ticketsRef.current = nextTickets;
     cancelledAutoBetRef.current.delete(index);
     setTickets(nextTickets);
-    const choiceName = gameModeRef.current === "support" && index === 1
-      ? supportById[supportIdRef.current].name
-      : roleById[ticket.roleId].name;
+    const choiceName = roleById[ticket.roleId].name;
     showToast(`下注 ${index + 1} 已鎖定`, `${choiceName} · ${money(ticket.amount)} 籌碼`, "good");
     tone(520);
     haptic(14);
@@ -565,30 +462,21 @@ export default function GameClient() {
     const abilityRolls = showcaseModeRef.current
       ? forcedAbilityRolls
       : roundSpecRef.current?.abilityRolls[index] ?? forcedAbilityRolls;
-    const supportPanel = gameModeRef.current === "support" && index === 1;
-    if (!supportPanel && current.roleId === "tomato" && !automatic) {
+    if (current.roleId === "tomato" && !automatic) {
       showToast("番茄會自己決定時機", "將在 2.00×–5.00× 自動 Cash Out", "bad");
       tone(210);
       return;
     }
 
     const stake = current.amount;
-    const settlement = supportPanel
-      ? { payout: stake * at, note: "", outcome: "neutral" as const, triggeredRoleIds: [] as RoleId[] }
-      : settleSuccessfulCashout(
-          current.roleId,
-          stake,
-          at,
-          abilityRolls,
-          gameModeRef.current === "duo" ? selectedRoundRoleIds(currentTickets) : [current.roleId],
-        );
+    const settlement = settleSuccessfulCashout(current.roleId, stake, at, abilityRolls, selectedRoundRoleIds(currentTickets));
     const paid = settlement.payout;
-    const roleNote = !supportPanel && current.roleId === "tomato" && !settlement.note
+    const roleNote = current.roleId === "tomato" && !settlement.note
       ? `番茄：在 ${at.toFixed(2)}× 自動收成`
       : "";
     const note = [roleNote, settlement.note].filter(Boolean).join(" · ");
     const skillTone: "good" | "gold" = settlement.outcome === "bonus" ? "gold" : "good";
-    if (!supportPanel && current.roleId === "tomato" && !settlement.triggeredRoleIds.includes("tomato")) {
+    if (current.roleId === "tomato" && !settlement.triggeredRoleIds.includes("tomato")) {
       triggerSkillFx("tomato", index, "隨機收成！");
     }
     const labels: Partial<Record<RoleId, string>> = {
@@ -621,26 +509,21 @@ export default function GameClient() {
       linkAwarded: ticket.linkAwarded,
       abilityRoll: showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[ticketIndex]?.[ticket.roleId] ?? .5,
     }));
-    const linkSettlement = gameModeRef.current === "support"
-      ? settleSupportLink(settlementTickets, supportIdRef.current)
-      : settleDuoLink(placedIndexes.map((ticketIndex) => settlementTickets[ticketIndex]));
+    const linkSettlement = settleDuoLink(placedIndexes.map((ticketIndex) => settlementTickets[ticketIndex]));
 
     if (linkSettlement.triggered) {
       next = next.map((ticket, ticketIndex) => {
-        const placedIndex = gameModeRef.current === "support" ? ticketIndex : placedIndexes.indexOf(ticketIndex);
+        const placedIndex = placedIndexes.indexOf(ticketIndex);
         if (placedIndex < 0) return ticket;
         const extra = linkSettlement.extras[placedIndex] ?? 0;
-        const linkLabel = gameModeRef.current === "support" ? "支援" : "連攜";
         return {
           ...ticket,
           payout: ticket.payout + extra,
           linkAwarded: true,
-          note: [ticket.note, extra > 0 ? `${linkLabel}追加＋${money(extra)}` : `${linkLabel}條件完成`].filter(Boolean).join(" · "),
+          note: [ticket.note, extra > 0 ? `連攜追加＋${money(extra)}` : "連攜條件完成"].filter(Boolean).join(" · "),
         };
       });
-      if (gameModeRef.current === "support") {
-        if (linkSettlement.supportTriggered) triggerSupportFx(supportIdRef.current, `${supportById[supportIdRef.current].name} · 支援成功！`);
-      } else linkSettlement.sourceIndexes.forEach((placedIndex) => {
+      linkSettlement.sourceIndexes.forEach((placedIndex) => {
         const ticketIndex = placedIndexes[placedIndex];
         const roleId = next[ticketIndex].roleId;
         triggerSkillFx(roleId, ticketIndex, roleId === "peapod" ? "豌豆補給 · 獲利傳送！" : roleId === "pumpkin" ? "南瓜藤蔓 · 收成50%獲利！" : `${roleById[roleId].name} · 連攜加成！`);
@@ -654,13 +537,12 @@ export default function GameClient() {
     setTickets(next);
     activateSafeRun(next);
 
-    if (linkSettlement.triggered && gameModeRef.current === "support") showToast(`✨ ${linkSettlement.title}`, `主角追加 +${money(linkSettlement.total)}`, "gold");
-    else if (linkSettlement.triggered) showToast(`🔗 ${linkSettlement.title}成功！`, `追加獎勵 +${money(linkSettlement.total)}`, "gold");
+    if (linkSettlement.triggered) showToast(`🔗 ${linkSettlement.title}成功！`, `追加獎勵 +${money(linkSettlement.total)}`, "gold");
     else if (note) showToast(note, `下注 ${index + 1} +${money(paid)}`, skillTone);
     else showToast(`下注 ${index + 1} Cash Out`, `${at.toFixed(2)}× · +${money(paid)}`, "good");
     tone(linkSettlement.triggered ? 1080 : skillTone === "gold" ? 930 : 720, linkSettlement.triggered ? .2 : .13, linkSettlement.triggered ? "triangle" : "sine");
     haptic(linkSettlement.triggered ? [20, 22, 20, 22, 34] : skillTone === "gold" ? [18, 28, 24] : 18);
-  }, [activateSafeRun, haptic, showToast, tone, triggerSkillFx, triggerSupportFx]);
+  }, [activateSafeRun, haptic, showToast, tone, triggerSkillFx]);
 
   const settleCrash = useCallback((crashPoint: number) => {
     const settled = ticketsRef.current.map((ticket) => {
@@ -684,7 +566,6 @@ export default function GameClient() {
     setPhase("betting");
     setRoundNo((value) => value + 1);
     setSkillEffects([]);
-    setSupportEffects([]);
     safeRunRef.current = idleSafeRun;
     setSafeRun(idleSafeRun);
     const nextTickets = ticketsRef.current.map((ticket) => ({
@@ -746,23 +627,7 @@ export default function GameClient() {
       const currentSpec = roundSpecRef.current;
       if (!currentSpec) return;
       const currentTickets = ticketsRef.current;
-      const wagers = ticketsToRtpWagers(currentTickets, gameModeRef.current);
-      const baseRtp = gameModeRef.current === "support"
-        ? calibrateSupportRoundBaseRtp(
-            currentTickets[0]?.placed ? {
-              roleId: currentTickets[0].roleId,
-              stake: currentTickets[0].amount,
-              target: ticketStrategyTarget(currentTickets[0], 0, "support"),
-              manual: !usesTomatoAuto(currentTickets[0], 0, "support") && !currentTickets[0].autoCash,
-            } : null,
-            currentTickets[1]?.placed ? {
-              stake: currentTickets[1].amount,
-              target: ticketStrategyTarget(currentTickets[1], 1, "support"),
-              manual: !currentTickets[1].autoCash,
-            } : null,
-            supportIdRef.current,
-          )
-        : calibrateRoundBaseRtp(wagers);
+      const baseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets));
       const resolvedSpec = {
         ...currentSpec,
         baseRtp,
@@ -803,8 +668,7 @@ export default function GameClient() {
       const crashPoint = roundSpecRef.current?.crashPoint ?? 2.5;
       ticketsRef.current.forEach((ticket, index) => {
         if (ticket.status !== "running") return;
-        const usesTomatoAuto = (gameModeRef.current === "duo" || index === 0) && ticket.roleId === "tomato";
-        const target = usesTomatoAuto ? ticket.autoRoleTarget : ticket.autoCash;
+        const target = usesTomatoAuto(ticket) ? ticket.autoRoleTarget : ticket.autoCash;
         if (target && target <= crashPoint && nextMultiplier >= target) cashOut(index, target, true);
       });
       const roundEndPoint = safeRunRef.current.active ? safeRunRef.current.visualEnd : crashPoint;
@@ -839,17 +703,12 @@ export default function GameClient() {
   const runningCount = tickets.filter((ticket) => ticket.status === "running").length;
   const caughtCount = tickets.filter((ticket) => ticket.status === "lost").length;
   const duoDescription = describeDuoPair(tickets.map((ticket) => ticket.roleId));
-  const selectedSupport = supportById[supportId];
-  const duoActive = gameMode === "duo" && placedCount === 2;
-  const supportActive = gameMode === "support" && placedCount === 2;
-  const linkedActive = duoActive || supportActive;
-  const manualCurveActive = tickets.some((ticket, ticketIndex) => ticket.enabled && ticket.placed
-    && !usesTomatoAuto(ticket, ticketIndex, gameMode) && !ticket.autoCash);
+  const duoActive = placedCount === 2;
+  const manualCurveActive = tickets.some((ticket) => ticket.enabled && ticket.placed && !usesTomatoAuto(ticket) && !ticket.autoCash);
 
   const stageMessage = useMemo(() => {
     if (phase === "betting") {
       if (duoActive) return `${duoDescription.title}已啟動，準備開跑`;
-      if (supportActive) return `${selectedSupport.name}已備妥，準備支援主角`;
       return placedCount ? `${placedCount} 注已鎖定，準備開跑` : "選擇角色並在倒數前下注";
     }
     if (phase === "crashed") return safeRun.active
@@ -859,9 +718,8 @@ export default function GameClient() {
     if (safeRun.active) return safeRun.extended ? "已全數 Cash Out · Near Miss 安全領跑" : "已全數 Cash Out · 安全領跑";
     if (!runningCount) return "本局已完成結算";
     if (duoActive) return duoDescription.shortSummary;
-    if (supportActive) return `${selectedSupport.name} · 兩注成功就支援主角`;
     return "在收割者追上前 Cash Out！";
-  }, [duoActive, duoDescription.shortSummary, duoDescription.title, multiplier, phase, placedCount, runningCount, safeRun, selectedSupport.name, supportActive]);
+  }, [duoActive, duoDescription.shortSummary, duoDescription.title, multiplier, phase, placedCount, runningCount, safeRun]);
 
   const stageProgress = phase === "betting"
     ? Math.max(4, ((8 - countdown) / 8) * 100)
@@ -889,20 +747,12 @@ export default function GameClient() {
   const chooseRole = (ticketIndex: number, roleId: RoleId) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket)) return;
-    if (gameModeRef.current === "support" && (ticketIndex !== 0 || !mainRoleIds.includes(roleId))) return;
     updateTicket(ticketIndex, (current) => ({
       ...current,
       roleId,
       autoCash: roleId === "tomato" ? null : current.autoCash,
     }));
     tone(650);
-  };
-
-  const chooseSupport = (nextSupportId: SupportId) => {
-    if (!canEditUnplacedTicket(ticketsRef.current[1])) return;
-    supportIdRef.current = nextSupportId;
-    setSupportId(nextSupportId);
-    tone(690, .07, "triangle");
   };
 
   const changeStake = (ticketIndex: number, delta: number) => {
@@ -929,7 +779,7 @@ export default function GameClient() {
 
   const toggleAutoCash = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
-    if (!canEditUnplacedTicket(ticket) || usesTomatoAuto(ticket, ticketIndex, gameModeRef.current)) return;
+    if (!canEditUnplacedTicket(ticket) || usesTomatoAuto(ticket)) return;
     updateTicket(ticketIndex, (current) => ({ ...current, autoCash: current.autoCash ? null : current.autoCashTarget }));
     tone(ticket.autoCash ? 410 : 590, .055, "triangle");
   };
@@ -974,7 +824,7 @@ export default function GameClient() {
     haptic(12);
   };
 
-  const ticketActionLabel = (ticket: Ticket, ticketIndex: number) => {
+  const ticketActionLabel = (ticket: Ticket) => {
     if (phase === "betting") return ticket.placed
       ? "取消下注"
       : roundSpec ? "BET" : "PREPARING";
@@ -984,22 +834,22 @@ export default function GameClient() {
     }
     if (!ticket.placed) return "NO BET";
     if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
-    if (usesTomatoAuto(ticket, ticketIndex, gameMode)) return "AUTO 2–5×";
+    if (usesTomatoAuto(ticket)) return "AUTO 2–5×";
     if (ticket.status !== "running") return "SETTLED";
     return `CASH OUT · ${money(ticket.amount * multiplier)}`;
   };
 
-  const ticketActionDisabled = (ticket: Ticket, ticketIndex: number) =>
+  const ticketActionDisabled = (ticket: Ticket) =>
     (phase === "betting" && (!roundSpec || countdown <= 0)) ||
     phase === "crashed" ||
     (phase === "running" && ticket.status !== "running") ||
     (phase === "running" && multiplier < 1.01) ||
-    (phase === "running" && usesTomatoAuto(ticket, ticketIndex, gameMode));
+    (phase === "running" && usesTomatoAuto(ticket));
 
   return (
     <main className="game-shell">
       <section
-        className={`game-phone phase-${phase} mode-${gameMode} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${linkedActive ? "duo-active" : ""} ${supportActive ? "support-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
+        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${duoActive ? "duo-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
         aria-label="蔬菜跑跑 Crash Game Demo"
       >
         <section
@@ -1047,7 +897,7 @@ export default function GameClient() {
               const laneX = 50 + (laneOrigin - 50) * (1 - progress / 240);
               return (
                 <div
-                  className={`road-runner runner-${index + 1} status-${ticket.status} ${phase === "running" && ticket.status === "cashed" ? "cashout-lap" : ""} ${gameMode === "support" && index === 1 ? "is-support-runner" : ""} ${skillEffects.some((effect) => effect.ticketIndex === index) || (index === 0 && supportEffects.length) ? "skill-active" : ""}`}
+                  className={`road-runner runner-${index + 1} status-${ticket.status} ${phase === "running" && ticket.status === "cashed" ? "cashout-lap" : ""} ${skillEffects.some((effect) => effect.ticketIndex === index) ? "skill-active" : ""}`}
                   style={{
                     "--runner-progress": progress,
                     "--runner-scale": runnerScale,
@@ -1056,9 +906,7 @@ export default function GameClient() {
                   } as CSSProperties}
                   key={index}
                 >
-                  {gameMode === "support" && index === 1
-                    ? <SupportRunner supportId={supportId} active={phase === "running"} />
-                    : <CanvasRunner roleId={ticket.roleId} label={roleById[ticket.roleId].name} back={phase !== "betting"} active={phase === "running"} phaseOffset={index * 184} />}
+                  <CanvasRunner roleId={ticket.roleId} label={roleById[ticket.roleId].name} back={phase !== "betting"} active={phase === "running"} phaseOffset={index * 184} />
                   <b>{index + 1}</b>
                 </div>
               );
@@ -1071,11 +919,6 @@ export default function GameClient() {
                 : effect.ticketIndex === 0 ? 43 : 61;
               const x = 50 + (laneOrigin - 50) * (1 - stageProgress / 240);
               return <SkillEffect effect={effect} x={x} key={effect.id} />;
-            })}
-            {supportEffects.map((effect) => {
-              const laneOrigin = placedCount === 1 ? 50 : 43;
-              const x = 50 + (laneOrigin - 50) * (1 - stageProgress / 240);
-              return <SupportEffect effect={effect} x={x} key={effect.id} />;
             })}
           </div>
           {phase !== "betting" && (
@@ -1123,7 +966,7 @@ export default function GameClient() {
               {tickets.map((ticket, index) => ticket.enabled && ticket.placed && (
                 <span className={`result-${ticket.status}`} key={index}>
                   <b>{index + 1}</b>
-                  <i>{ticket.status === "cashed" ? gameMode === "support" && index === 1 ? "SUPPORT CASH OUT" : ticket.linkAwarded ? gameMode === "support" ? "SUPPORTED WIN" : "LINK CASH OUT" : "CASH OUT SUCCESS" : "CAUGHT"}</i>
+                  <i>{ticket.status === "cashed" ? ticket.linkAwarded ? "LINK CASH OUT" : "CASH OUT SUCCESS" : "CAUGHT"}</i>
                   <strong>{ticket.status === "cashed" ? `WIN +${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`}</strong>
                 </span>
               ))}
@@ -1133,7 +976,7 @@ export default function GameClient() {
             <div className="near-miss-cue" role="status" aria-live="polite"><b>NEAR MISS</b><small>已完成結算 · 安全演出</small></div>
           )}
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
-          {phase === "betting" && gameMode === "duo" && (
+          {phase === "betting" && (
             <div className={`duo-preview stage-duo-preview ${duoActive ? "is-active" : ""}`} aria-label="目前雙注連攜">
               <strong><span>🔗 {duoDescription.title}</span><b>{duoActive ? "連攜中" : "選角預覽"}</b></strong>
               <small>{duoDescription.shortSummary}</small>
@@ -1147,51 +990,22 @@ export default function GameClient() {
               <small>{duoDescription.shortSummary}</small>
             </div>
           )}
-          {phase === "betting" && gameMode === "support" && (
-            <div className={`duo-preview support-preview stage-duo-preview ${supportActive ? "is-active" : ""}`} aria-label="目前醬料支援">
-              <strong><span>🥫 {selectedSupport.name}</span><b>{supportActive ? "支援中" : "支援預覽"}</b></strong>
-              <small>{selectedSupport.short}</small>
-            </div>
-          )}
-          {phase === "betting" && supportActive && (
-            <div className="duo-activation support-activation" role="status" aria-live="polite">
-              <span>MAIN + SUPPORT</span>
-              <strong>支援裝備！</strong>
-              <b>{selectedSupport.name}</b>
-              <small>{selectedSupport.short}</small>
-            </div>
-          )}
           <button className="fair-link" onClick={() => setFairOpen(true)}>FAIR ✓</button>
         </section>
 
         <section className="bet-zone">
           {duoActive && phase === "betting" && <div className="duo-bridge" aria-label={`${duoDescription.title}連攜中`}><i>🔗</i><strong>{duoDescription.title}</strong><span>連攜中</span></div>}
-          {supportActive && phase === "betting" && <div className="duo-bridge support-bridge" aria-label={`${selectedSupport.name}支援中`}><i>🥫</i><strong>{selectedSupport.name}</strong><span>支援中</span></div>}
           {tickets.map((ticket, ticketIndex) => {
             const role = roleById[ticket.roleId];
             const canEdit = canEditUnplacedTicket(ticket);
-            const isSupportPanel = gameMode === "support" && ticketIndex === 1;
-            const tomatoAuto = usesTomatoAuto(ticket, ticketIndex, gameMode);
-            const roleChoices = gameMode === "support" ? mainRoles : roles;
-            const infoAccent = isSupportPanel ? selectedSupport.accent : role.accent;
-            const roleDetail = gameMode === "duo" && (ticket.roleId === "pumpkin" || ticket.roleId === "peapod")
+            const tomatoAuto = usesTomatoAuto(ticket);
+            const roleDetail = ticket.roleId === "pumpkin" || ticket.roleId === "peapod"
               ? duoDescription.roleDetails[ticketIndex]
               : role.detail;
             return (
-              <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") || ticket.linkAwarded ? "skill-triggered" : ""} ${linkedActive ? "has-duo" : ""} ${isSupportPanel ? "support-card" : gameMode === "support" ? "main-card" : ""}`} key={ticketIndex}>
-                <div className={`character-grid ${gameMode === "support" ? "four-grid" : ""}`} aria-label={`下注 ${ticketIndex + 1} 選擇${isSupportPanel ? "支援醬料" : "角色"}`}>
-                  {isSupportPanel ? supports.map((option) => (
-                    <button
-                      className={supportId === option.id ? "selected" : ""}
-                      disabled={!canEdit}
-                      aria-pressed={supportId === option.id}
-                      onClick={() => chooseSupport(option.id)}
-                      title={`${option.name}：${option.short}`}
-                      key={option.id}
-                    >
-                      <SupportSprite supportId={option.id} />
-                    </button>
-                  )) : roleChoices.map((option) => (
+              <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") || ticket.linkAwarded ? "skill-triggered" : ""} ${duoActive ? "has-duo" : ""}`} key={ticketIndex}>
+                <div className="character-grid" aria-label={`下注 ${ticketIndex + 1} 選擇角色`}>
+                  {roles.map((option) => (
                     <button
                       className={ticket.roleId === option.id ? "selected" : ""}
                       disabled={!canEdit}
@@ -1205,12 +1019,11 @@ export default function GameClient() {
                   ))}
                 </div>
 
-                <div className="role-info" style={{ "--role-accent": infoAccent } as CSSProperties}>
-                  {gameMode === "support" && <small className="panel-kind">{isSupportPanel ? "支援醬料" : "主角"}</small>}
+                <div className="role-info" style={{ "--role-accent": role.accent } as CSSProperties}>
                   <div className="role-name-row">
-                    <strong>{isSupportPanel ? selectedSupport.name : role.name}</strong>
+                    <strong>{role.name}</strong>
                   </div>
-                  <p>{isSupportPanel ? selectedSupport.detail : roleDetail}</p>
+                  <p>{roleDetail}</p>
                 </div>
 
                 <div className="amount-stepper">
@@ -1221,10 +1034,10 @@ export default function GameClient() {
 
                 <button
                   className={`bet-action ${phase === "running" && ticket.status === "running" ? "cash-mode" : ""} ${phase === "betting" && ticket.placed ? "cancel-mode" : ""}`}
-                  disabled={ticketActionDisabled(ticket, ticketIndex)}
+                  disabled={ticketActionDisabled(ticket)}
                   onClick={() => ticketAction(ticketIndex)}
                 >
-                  {ticketActionLabel(ticket, ticketIndex)}
+                  {ticketActionLabel(ticket)}
                 </button>
 
                 <div className="card-options">
@@ -1299,39 +1112,23 @@ export default function GameClient() {
             <section className="info-sheet" role="dialog" aria-modal="true" aria-labelledby="rules-title">
               <div className="sheet-handle" />
               <header><div><small>GAME MENU</small><h2 id="rules-title">遊戲選單</h2></div><button aria-label="關閉遊戲選單" onClick={() => setRulesOpen(false)}>×</button></header>
-              <section className="mode-selector" aria-label="選擇玩法模式">
-                <strong>玩法模式</strong>
-                <div>
-                  <button className={gameMode === "duo" ? "selected" : ""} aria-pressed={gameMode === "duo"} onClick={() => switchGameMode("duo")}><b>雙蔬菜</b><small>兩隻角色互相連攜</small></button>
-                  <button className={gameMode === "support" ? "selected" : ""} aria-pressed={gameMode === "support"} onClick={() => switchGameMode("support")}><b>主角＋支援</b><small>主角搭配醬料加成</small></button>
-                </div>
-                <span>{phase === "betting" && placedCount === 0 ? "現在可以切換" : "本局結束後可切換"}</span>
-              </section>
               <div className="rule-steps">
                 <article><b>01</b><div><strong>8 秒選角下注</strong><span>未下注的面板隨時可調整；開跑前每注都可單獨取消並退回籌碼。</span></div></article>
                 <article><b>02</b><div><strong>倍率持續成長</strong><span>角色越跑越遠，派彩由 1.00× 不斷上升。</span></div></article>
                 <article><b>03</b><div><strong>被抓前 Cash Out</strong><span>成功取得下注額 × 當下倍率；爆掉則失去未結算部位。</span></div></article>
               </div>
-              <h3 className="role-guide-title">{gameMode === "support" ? "主角與支援" : "角色能力"}</h3>
+              <h3 className="role-guide-title">角色能力</h3>
               <div className="role-guide">
-                {(gameMode === "support" ? mainRoles : roles).map((role) => (
+                {roles.map((role) => (
                   <article key={role.id}>
                     <Sprite roleId={role.id} />
                     <div><strong>{role.name}</strong><span>{role.short}</span></div>
                   </article>
                 ))}
-                {gameMode === "support" && supports.map((support) => (
-                  <article className="support-guide-item" key={support.id}>
-                    <SupportSprite supportId={support.id} />
-                    <div><strong>{support.name}</strong><span>{support.short}</span></div>
-                  </article>
-                ))}
               </div>
               <div className="ability-sharing-note">
-                <strong>{gameMode === "support" ? "🥫 支援怎麼生效" : "🔗 雙注能力怎麼生效"}</strong>
-                <span>{gameMode === "support"
-                  ? "上方是主角、下方是醬料支援。兩注共用同一爆點並可各自 Cash Out；兩注都成功且達成醬料條件，主角再拿額外獲利。"
-                  : "兩注選角後，角色卡會直接寫出目前組合的獎勵來源與對象。豌豆把自己的獲利加給另一注；南瓜取得另一注50%獲利。轉移只計算原始獲利，不重複計算其他角色加成。"}</span>
+                <strong>🔗 雙注能力怎麼生效</strong>
+                <span>兩注選角後，角色卡會直接寫出目前組合的獎勵來源與對象。豌豆把自己的獲利加給另一注；南瓜取得另一注50%獲利。轉移只計算原始獲利，不重複計算其他角色加成。</span>
               </div>
               <div className="ability-sharing-note near-miss-note">
                 <strong>🎯 自然 Near Miss</strong>
@@ -1376,7 +1173,7 @@ export default function GameClient() {
                 </div>
               )}
               <span className="field-label">本局玩法／組合 VI 曲線</span>
-              <code>{phase === "betting" ? "下注鎖定後計算" : `${gameMode === "support" ? `${roleById[tickets[0].roleId].name}＋${selectedSupport.name}` : duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
+              <code>{phase === "betting" ? "下注鎖定後計算" : `${duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
               <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + visual near-miss unit</code>
               <p>開局先承諾 Seed、爆點亂數與演出亂數；下注鎖定後，再依目前玩法、角色組合與投注比例，將同一爆點亂數映射到對應 VI 曲線。開啟 Auto Cash Out 時，曲線依鎖定倍率校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動 Cash Out 不讀取輸入框倍率，改用防套利曲線，已測固定時機策略不會高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用同一結算爆點；Near Miss 只延長已結算後的演出，不參與派彩、爆點紀錄或 RTP。</p>

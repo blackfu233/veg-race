@@ -4,16 +4,13 @@ import test from "node:test";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "../app/ticket-actions.mjs";
 import {
   calibrateRoundBaseRtp,
-  calibrateSupportRoundBaseRtp,
   crashPointFromUnit,
   createVisualNearMiss,
   describeDuoPair,
   expectedCrashPayout,
   expectedRoundReturn,
-  expectedSupportRoundReturn,
   expectedSuccessfulPayout,
   settleDuoLink,
-  settleSupportLink,
   settleCrashRole,
   settleSuccessfulCashout,
   survivalAt,
@@ -21,8 +18,6 @@ import {
 } from "../app/rtp-engine.mjs";
 
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
-const mainRoleIds = ["potato", "chili", "mushroom", "tomato"];
-const supportIds = ["ketchup", "mayonnaise", "mustard", "wasabi"];
 const neutralRolls = { potato: 0.99, chili: 0.99, pumpkin: 0.99, tomato: 0.99, peapod: 0.99, mushroom: 0.99 };
 const hitRolls = { potato: 0, chili: 0, pumpkin: 0, tomato: 0, peapod: 0, mushroom: 0 };
 
@@ -99,7 +94,6 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙注能力怎麼生效/);
-  assert.match(source, /const mainRoleIds: RoleId\[\] = \["potato", "chili", "mushroom", "tomato"\]/);
   assert.match(source, /25%機率把本注獲利加給另一注/);
   assert.match(source, /25%機率取得另一注50%獲利/);
   assert.match(source, /連攜啟動！/);
@@ -109,11 +103,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /combo-copy|combo-badge/);
   assert.doesNotMatch(source, /同場串關|BET BOTH|兩關相乘/);
   assert.doesNotMatch(source, /雙注共享|本注限定/);
-  assert.match(source, /主角＋支援/);
-  assert.match(source, /雙蔬菜/);
-  for (const supportName of ["番茄醬", "美乃滋", "芥末醬", "山葵醬"]) assert.match(source, new RegExp(supportName));
-  assert.match(source, /switchGameMode/);
-  assert.match(source, /支援裝備！/);
+  assert.doesNotMatch(source, /主角＋支援|支援醬料|番茄醬|美乃滋|芥末醬|山葵醬|switchGameMode/);
 });
 
 test("locks the viewport and keeps touch controls zoom-free", async () => {
@@ -143,7 +133,6 @@ test("ships the active runner and pursuer art set", async () => {
       `../public/runner-sprites/${roleId}-ready.webp`,
       `../public/runner-sprites/${roleId}-run.webp`,
     ]),
-    ...supportIds.map((supportId) => `../public/support-icons/${supportId}.webp`),
   ];
   for (const asset of assets) {
     const info = await stat(new URL(asset, import.meta.url));
@@ -159,7 +148,7 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.match(source, /digestHex\(seed \+ ":near-miss"\)/);
   assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target"\]/);
   assert.match(source, /digestHex\(`\$\{seed\}:ticket:\$\{index\}:\$\{key\}`\)/);
-  assert.match(source, /calibrateRoundBaseRtp\(wagers\)/);
+  assert.match(source, /calibrateRoundBaseRtp\(ticketsToRtpWagers\(currentTickets\)\)/);
 });
 
 test("keeps near miss visual-only and bounded after every wager is settled", async () => {
@@ -187,42 +176,6 @@ test("keeps every duo on one shared crash without parlay settlement", async () =
   assert.match(source, /type RoundSpec = \{[\s\S]*?crashPoint: number;[\s\S]*?abilityRolls/);
   assert.doesNotMatch(source, /crashPoint2|crashPoints/);
   assert.doesNotMatch(source, /combinedFactor|parlayMode/);
-  assert.match(source, /calibrateSupportRoundBaseRtp/);
-  assert.match(source, /settleSupportLink/);
-});
-
-test("awards support only to the main ticket after both bets cash out", () => {
-  const ketchup = settleSupportLink([
-    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
-    { roleId: "potato", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
-  ], "ketchup");
-  assert.deepEqual(ketchup.extras, [40, 0]);
-  assert.equal(ketchup.total, 40);
-  assert.match(ketchup.note, /主角獲利＋20%/);
-
-  const mushroomJackpot = settleSupportLink([
-    { roleId: "mushroom", stake: 100, cashAt: 2, payout: settleSuccessfulCashout("mushroom", 100, 2, hitRolls).payout, status: "cashed" },
-    { roleId: "mushroom", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
-  ], "ketchup");
-  assert.deepEqual(mushroomJackpot.extras, [300, 0], "support applies to the Mushroom jackpot profit without replacing its own ability");
-
-  const mayonnaise = settleSupportLink([
-    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
-    { roleId: "potato", stake: 100, cashAt: 1.8, payout: 180, status: "cashed" },
-  ], "mayonnaise");
-  assert.deepEqual(mayonnaise.extras, [24, 0]);
-  assert.equal(settleSupportLink([
-    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
-    { roleId: "potato", stake: 100, cashAt: 2, payout: 200, status: "cashed" },
-  ], "mayonnaise").total, 0, "the early support requires its own cashout before 2x");
-  assert.equal(settleSupportLink([
-    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed", linkAwarded: true },
-    { roleId: "potato", stake: 100, cashAt: 3, payout: 300, status: "cashed" },
-  ], "mustard").total, 0, "support awards are idempotent");
-  assert.equal(settleSupportLink([
-    { roleId: "potato", stake: 100, cashAt: 6, payout: 600, status: "lost" },
-    { roleId: "potato", stake: 100, cashAt: 6, payout: 600, status: "cashed" },
-  ], "wasabi").total, 0, "support never rescues a lost main ticket");
 });
 
 test("keeps base abilities separate and settles profit transfers only after both cashouts", () => {
@@ -339,36 +292,10 @@ test("calibrates all six single-role and 21 unordered two-role VI curves to 96% 
   assert.equal(combinationCount, 21);
 });
 
-test("calibrates all 16 main-and-support combinations to 96% RTP", () => {
-  const targets = [
-    [1.5, 1.5],
-    [2.5, 2.5],
-    [4, 3.5],
-    [7, 6],
-    [12, 5.5],
-  ];
-  let combinationCount = 0;
-  for (const roleId of mainRoleIds) {
-    for (const supportId of supportIds) {
-      for (const [mainTarget, supportTarget] of targets) {
-        const mainWager = { roleId, stake: 125, target: mainTarget };
-        const supportWager = { stake: 75, target: supportTarget };
-        const baseRtp = calibrateSupportRoundBaseRtp(mainWager, supportWager, supportId);
-        const combinedRtp = expectedSupportRoundReturn(mainWager, supportWager, supportId, baseRtp) / 200;
-        assert.ok(baseRtp <= TARGET_RTP);
-        assert.ok(Math.abs(combinedRtp - TARGET_RTP) < 1e-9, `${roleId} + ${supportId} at ${mainTarget}/${supportTarget} returned ${combinedRtp}`);
-      }
-      combinationCount += 1;
-    }
-  }
-  assert.equal(combinationCount, 16);
-});
-
-test("holds 96% across an exhaustive target and stake matrix in both modes", () => {
+test("holds 96% across an exhaustive duo target and stake matrix", () => {
   const targets = [1.2, 1.5, 1.99, 2, 3, 4, 4.99, 5, 6, 10, 25, 50, 99];
   const stakePairs = [[1, 1], [1, 3], [3, 1], [10, 37]];
   let duoCases = 0;
-  let supportCases = 0;
   for (let first = 0; first < roleIds.length; first += 1) {
     for (let second = first; second < roleIds.length; second += 1) {
       for (const firstTarget of targets) for (const secondTarget of targets) for (const [firstStake, secondStake] of stakePairs) {
@@ -383,18 +310,7 @@ test("holds 96% across an exhaustive target and stake matrix in both modes", () 
       }
     }
   }
-  for (const roleId of mainRoleIds) for (const supportId of supportIds) {
-    for (const mainTarget of targets) for (const supportTarget of targets) for (const [mainStake, supportStake] of stakePairs) {
-      const mainWager = { roleId, stake: mainStake, target: mainTarget };
-      const supportWager = { stake: supportStake, target: supportTarget };
-      const baseRtp = calibrateSupportRoundBaseRtp(mainWager, supportWager, supportId);
-      const rtp = expectedSupportRoundReturn(mainWager, supportWager, supportId, baseRtp) / (mainStake + supportStake);
-      assert.ok(Math.abs(rtp - TARGET_RTP) < 1e-9);
-      supportCases += 1;
-    }
-  }
   assert.equal(duoCases, 14196);
-  assert.equal(supportCases, 10816);
 });
 
 test("keeps every tested manual cashout strategy at or below 96%", () => {
@@ -427,16 +343,6 @@ test("keeps every tested manual cashout strategy at or below 96%", () => {
     }
   }
 
-  for (const roleId of mainRoleIds) for (const supportId of supportIds) for (const [mainStake, supportStake] of stakePairs) {
-    const bothManualMain = { roleId, stake: mainStake, target: 2, manual: true };
-    const bothManualSupport = { stake: supportStake, target: 2, manual: true };
-    const bothManualBase = calibrateSupportRoundBaseRtp(bothManualMain, bothManualSupport, supportId);
-    for (const mainTarget of targets) for (const supportTarget of targets) {
-      const main = { ...bothManualMain, target: mainTarget };
-      const support = { ...bothManualSupport, target: supportTarget };
-      assertCapped(expectedSupportRoundReturn(main, support, supportId, bothManualBase) / (mainStake + supportStake), `${roleId} + ${supportId} manual ${mainTarget}/${supportTarget}`);
-    }
-  }
 });
 
 test("ignores the editable target when a wager is marked for manual cashout", () => {
