@@ -165,9 +165,12 @@ function selectedRoundRoleIds(tickets: Ticket[]) {
 }
 
 function ticketsToRtpWagers(tickets: Ticket[], mode: GameMode) {
-  return tickets
-    .filter((ticket) => ticket.enabled && ticket.placed)
-    .map((ticket) => ({ roleId: ticket.roleId, stake: ticket.amount, target: ticketStrategyTarget(ticket, tickets.indexOf(ticket), mode) }));
+  return tickets.flatMap((ticket, ticketIndex) => ticket.enabled && ticket.placed ? [{
+      roleId: ticket.roleId,
+      stake: ticket.amount,
+      target: ticketStrategyTarget(ticket, ticketIndex, mode),
+      manual: !usesTomatoAuto(ticket, ticketIndex, mode) && !ticket.autoCash,
+    }] : []);
 }
 
 function money(value: number) {
@@ -504,7 +507,7 @@ export default function GameClient() {
       remaining: 1,
       note: "",
       linkAwarded: false,
-      autoRoleTarget: (gameModeRef.current === "duo" || ticketIndex === 0) && current.roleId === "tomato" ? 2 + targetRoll * 3 : null,
+      autoRoleTarget: (gameModeRef.current === "duo" || ticketIndex === 0) && current.roleId === "tomato" ? Math.round((2 + targetRoll * 3) * 100) / 100 : null,
     } : current);
     ticketsRef.current = nextTickets;
     cancelledAutoBetRef.current.delete(index);
@@ -750,10 +753,12 @@ export default function GameClient() {
               roleId: currentTickets[0].roleId,
               stake: currentTickets[0].amount,
               target: ticketStrategyTarget(currentTickets[0], 0, "support"),
+              manual: !usesTomatoAuto(currentTickets[0], 0, "support") && !currentTickets[0].autoCash,
             } : null,
             currentTickets[1]?.placed ? {
               stake: currentTickets[1].amount,
               target: ticketStrategyTarget(currentTickets[1], 1, "support"),
+              manual: !currentTickets[1].autoCash,
             } : null,
             supportIdRef.current,
           )
@@ -838,6 +843,8 @@ export default function GameClient() {
   const duoActive = gameMode === "duo" && placedCount === 2;
   const supportActive = gameMode === "support" && placedCount === 2;
   const linkedActive = duoActive || supportActive;
+  const manualCurveActive = tickets.some((ticket, ticketIndex) => ticket.enabled && ticket.placed
+    && !usesTomatoAuto(ticket, ticketIndex, gameMode) && !ticket.autoCash);
 
   const stageMessage = useMemo(() => {
     if (phase === "betting") {
@@ -954,7 +961,7 @@ export default function GameClient() {
     if (phaseRef.current === "betting") {
       if (ticketsRef.current[ticketIndex].placed) cancelBet(ticketIndex);
       else placeBet(ticketIndex);
-    } else if (phaseRef.current === "running") cashOut(ticketIndex, multiplier);
+    } else if (phaseRef.current === "running") cashOut(ticketIndex, Math.floor(multiplier * 100 + 1e-9) / 100);
   };
 
   const resetDemoBalance = () => {
@@ -986,6 +993,7 @@ export default function GameClient() {
     (phase === "betting" && (!roundSpec || countdown <= 0)) ||
     phase === "crashed" ||
     (phase === "running" && ticket.status !== "running") ||
+    (phase === "running" && multiplier < 1.01) ||
     (phase === "running" && usesTomatoAuto(ticket, ticketIndex, gameMode));
 
   return (
@@ -1368,10 +1376,10 @@ export default function GameClient() {
                 </div>
               )}
               <span className="field-label">本局玩法／組合 VI 曲線</span>
-              <code>{phase === "betting" ? "下注鎖定後計算" : `${gameMode === "support" ? `${roleById[tickets[0].roleId].name}＋${selectedSupport.name}` : duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → 含能力後目標 ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
+              <code>{phase === "betting" ? "下注鎖定後計算" : `${gameMode === "support" ? `${roleById[tickets[0].roleId].name}＋${selectedSupport.name}` : duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
               <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + visual near-miss unit</code>
-              <p>開局先承諾 Seed、爆點亂數與演出亂數；下注鎖定後，再依目前玩法、角色組合、投注比例與設定倍率，將同一爆點亂數映射到對應 VI 曲線。兩注共用同一結算爆點、各自 Cash Out；角色與支援能力只會加成或不觸發。Near Miss 只會在所有下注都已完成結算後延長少量畫面演出，不參與派彩、爆點紀錄或 RTP 計算。正常模式長期理論 RTP 目標為 {(TARGET_RTP * 100).toFixed(0)}%，不依玩家歷史輸贏動態調整；手動改變兌現時機會改變該策略的實際回報。</p>
+              <p>開局先承諾 Seed、爆點亂數與演出亂數；下注鎖定後，再依目前玩法、角色組合與投注比例，將同一爆點亂數映射到對應 VI 曲線。開啟 Auto Cash Out 時，曲線依鎖定倍率校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動 Cash Out 不讀取輸入框倍率，改用防套利曲線，已測固定時機策略不會高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用同一結算爆點；Near Miss 只延長已結算後的演出，不參與派彩、爆點紀錄或 RTP。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>

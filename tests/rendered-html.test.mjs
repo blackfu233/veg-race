@@ -177,7 +177,7 @@ test("keeps near miss visual-only and bounded after every wager is settled", asy
   assert.match(source, /roundEndPoint = safeRunRef\.current\.active \? safeRunRef\.current\.visualEnd : crashPoint/);
   assert.match(source, /setHistory\(\(current\) => \[crashPoint,/);
   assert.match(source, /settleCrash\(crashPoint\)/);
-  assert.match(source, /Near Miss 只會在所有下注都已完成結算後/);
+  assert.match(source, /Near Miss 只延長已結算後的演出/);
 });
 
 test("keeps every duo on one shared crash without parlay settlement", async () => {
@@ -397,6 +397,57 @@ test("holds 96% across an exhaustive target and stake matrix in both modes", () 
   assert.equal(supportCases, 10816);
 });
 
+test("keeps every tested manual cashout strategy at or below 96%", () => {
+  const targets = [1.01, 1.2, 1.5, 1.98, 1.99, 2, 2.01, 2.5, 2.99, 3, 3.01, 4.99, 5, 5.01, 10, 50, 99];
+  const stakePairs = [[1, 1], [1, 3], [3, 1]];
+  const assertCapped = (rtp, label) => assert.ok(rtp <= TARGET_RTP + 1e-9, `${label} returned ${rtp}`);
+
+  for (let first = 0; first < roleIds.length; first += 1) {
+    for (let second = first; second < roleIds.length; second += 1) {
+      for (const [firstStake, secondStake] of stakePairs) {
+        const bothManual = [
+          { roleId: roleIds[first], stake: firstStake, target: 2, manual: true },
+          { roleId: roleIds[second], stake: secondStake, target: 2, manual: true },
+        ];
+        const bothManualBase = calibrateRoundBaseRtp(bothManual);
+        for (const firstTarget of targets) for (const secondTarget of targets) {
+          const actual = bothManual.map((wager, index) => ({ ...wager, target: index ? secondTarget : firstTarget }));
+          assertCapped(expectedRoundReturn(actual, bothManualBase) / (firstStake + secondStake), `${roleIds[first]} + ${roleIds[second]} manual ${firstTarget}/${secondTarget}`);
+        }
+
+        for (const fixedIndex of [0, 1]) for (const fixedTarget of targets) {
+          const planned = bothManual.map((wager, index) => ({ ...wager, target: index === fixedIndex ? fixedTarget : 2, manual: index !== fixedIndex }));
+          const baseRtp = calibrateRoundBaseRtp(planned);
+          for (const manualTarget of targets) {
+            const actual = planned.map((wager, index) => index === fixedIndex ? wager : { ...wager, target: manualTarget });
+            assertCapped(expectedRoundReturn(actual, baseRtp) / (firstStake + secondStake), `${roleIds[first]} + ${roleIds[second]} mixed ${fixedTarget}/${manualTarget}`);
+          }
+        }
+      }
+    }
+  }
+
+  for (const roleId of mainRoleIds) for (const supportId of supportIds) for (const [mainStake, supportStake] of stakePairs) {
+    const bothManualMain = { roleId, stake: mainStake, target: 2, manual: true };
+    const bothManualSupport = { stake: supportStake, target: 2, manual: true };
+    const bothManualBase = calibrateSupportRoundBaseRtp(bothManualMain, bothManualSupport, supportId);
+    for (const mainTarget of targets) for (const supportTarget of targets) {
+      const main = { ...bothManualMain, target: mainTarget };
+      const support = { ...bothManualSupport, target: supportTarget };
+      assertCapped(expectedSupportRoundReturn(main, support, supportId, bothManualBase) / (mainStake + supportStake), `${roleId} + ${supportId} manual ${mainTarget}/${supportTarget}`);
+    }
+  }
+});
+
+test("ignores the editable target when a wager is marked for manual cashout", () => {
+  const earlyPlan = [{ roleId: "potato", stake: 100, target: 1.5, manual: true }];
+  const latePlan = [{ roleId: "potato", stake: 100, target: 50, manual: true }];
+  const baseRtp = calibrateRoundBaseRtp(earlyPlan);
+  assert.equal(baseRtp, calibrateRoundBaseRtp(latePlan));
+  assert.ok(Math.abs(expectedRoundReturn([{ ...earlyPlan[0], target: 1.5 }], baseRtp) / 100 - TARGET_RTP) < 1e-9);
+  assert.ok(expectedRoundReturn([{ ...earlyPlan[0], target: 2 }], baseRtp) / 100 < TARGET_RTP);
+});
+
 test("defines a visible description for all 21 unordered role pairs", () => {
   const keys = new Set();
   for (let first = 0; first < roleIds.length; first += 1) {
@@ -435,6 +486,8 @@ test("uses the same two-decimal boundary for 1.01x display and auto cashout", as
   assert.equal(crashPointFromUnit(belowUnit), 1);
   assert.match(source, /target <= crashPoint && nextMultiplier >= target/);
   assert.match(source, /const settlementTickets = next\.map\(\(ticket, ticketIndex\) =>/);
+  assert.match(source, /Math\.round\(\(2 \+ targetRoll \* 3\) \* 100\) \/ 100/);
+  assert.match(source, /cashOut\(ticketIndex, Math\.floor\(multiplier \* 100 \+ 1e-9\) \/ 100\)/);
 });
 
 test("strong abilities and links lower the base curve while preserving the 96% target", () => {

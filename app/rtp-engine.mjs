@@ -35,6 +35,7 @@ export const SUPPORT_NAMES = Object.freeze({
 
 const ROLE_ORDER = Object.freeze(Object.keys(ROLE_MATH));
 const ROLE_RANK = Object.freeze(Object.fromEntries(ROLE_ORDER.map((roleId, index) => [roleId, index])));
+const MANUAL_TARGET_BREAKPOINTS = Object.freeze([1.01, 1.99, 2, 2.99, 3, 4.99, 5, MAX_SETTLEMENT_MULTIPLIER]);
 
 const MIXED_LINKS = Object.freeze({
   "potato|chili": { title: "兩端包夾", rate: 0.3, recipients: "both", shortSummary: "早收＋5×成功 → 雙方獲利＋30%", summary: "馬鈴薯在 2× 前成功、辣椒在 5× 後成功 → 兩注獲利＋30%" },
@@ -92,7 +93,12 @@ function normalizeWagers(wagers) {
   return wagers
     .filter((wager) => wager && Object.hasOwn(ROLE_MATH, wager.roleId) && Number.isFinite(wager.stake) && wager.stake > 0)
     .slice(0, 2)
-    .map((wager) => ({ roleId: wager.roleId, stake: wager.stake, target: safeTarget(wager.target) }));
+    .map((wager) => ({ roleId: wager.roleId, stake: wager.stake, target: safeTarget(wager.target), manual: wager.manual === true }));
+}
+
+function manualTargetCandidates(peerTargets = []) {
+  return [...new Set([...MANUAL_TARGET_BREAKPOINTS, ...peerTargets.flatMap((target) => [target - .01, target, target + .01])]
+    .map((target) => Math.min(MAX_SETTLEMENT_MULTIPLIER, Math.max(1.01, Math.round(target * 100) / 100))))];
 }
 
 function ownTriggerChance(roleId, roundRoleIds) {
@@ -355,13 +361,28 @@ function roundReturnParts(wagers) {
   return { totalStake, baseCoefficient };
 }
 
+function manualSafeRoundParts(wagers) {
+  const active = normalizeWagers(wagers);
+  const totalStake = active.reduce((sum, wager) => sum + wager.stake, 0);
+  const fixedTargets = active.filter((wager) => !wager.manual).map((wager) => wager.target);
+  const targetSets = active.map((wager) => wager.manual ? manualTargetCandidates(fixedTargets) : [wager.target]);
+  let baseCoefficient = 0;
+  for (const firstTarget of targetSets[0] ?? []) {
+    for (const secondTarget of targetSets[1] ?? [null]) {
+      const candidates = active.map((wager, index) => ({ ...wager, target: index === 0 ? firstTarget : secondTarget }));
+      baseCoefficient = Math.max(baseCoefficient, roundReturnParts(candidates).baseCoefficient);
+    }
+  }
+  return { totalStake, baseCoefficient };
+}
+
 export function expectedRoundReturn(wagers, baseRtp) {
   const { baseCoefficient } = roundReturnParts(wagers);
   return Math.max(0, baseRtp) * baseCoefficient;
 }
 
 export function calibrateRoundBaseRtp(wagers) {
-  const { totalStake, baseCoefficient } = roundReturnParts(wagers);
+  const { totalStake, baseCoefficient } = manualSafeRoundParts(wagers);
   if (totalStake <= 0 || baseCoefficient <= 0) return TARGET_RTP;
   return Math.min(TARGET_RTP, Math.max(Number.EPSILON, TARGET_RTP * totalStake / baseCoefficient));
 }
@@ -375,10 +396,10 @@ function supportRoundParts(mainWager, supportWager, supportId) {
     && Number.isFinite(supportWager.stake)
     && supportWager.stake > 0;
   const main = hasMain
-    ? { roleId: mainWager.roleId, stake: mainWager.stake, target: safeTarget(mainWager.target) }
+    ? { roleId: mainWager.roleId, stake: mainWager.stake, target: safeTarget(mainWager.target), manual: mainWager.manual === true }
     : null;
   const support = hasSupport
-    ? { stake: supportWager.stake, target: safeTarget(supportWager.target) }
+    ? { stake: supportWager.stake, target: safeTarget(supportWager.target), manual: supportWager.manual === true }
     : null;
   const totalStake = (main?.stake ?? 0) + (support?.stake ?? 0);
   let baseCoefficient = 0;
@@ -392,13 +413,31 @@ function supportRoundParts(mainWager, supportWager, supportId) {
   return { totalStake, baseCoefficient };
 }
 
+function manualSafeSupportRoundParts(mainWager, supportWager, supportId) {
+  const fixedTargets = [mainWager, supportWager].filter((wager) => wager && wager.manual !== true).map((wager) => safeTarget(wager.target));
+  const mainTargets = mainWager?.manual === true ? manualTargetCandidates(fixedTargets) : [mainWager?.target ?? 2];
+  const supportTargets = supportWager?.manual === true ? manualTargetCandidates(fixedTargets) : [supportWager?.target ?? 2];
+  let result = supportRoundParts(mainWager, supportWager, supportId);
+  for (const mainTarget of mainTargets) {
+    for (const supportTarget of supportTargets) {
+      const candidate = supportRoundParts(
+        mainWager ? { ...mainWager, target: mainTarget } : null,
+        supportWager ? { ...supportWager, target: supportTarget } : null,
+        supportId,
+      );
+      if (candidate.baseCoefficient > result.baseCoefficient) result = candidate;
+    }
+  }
+  return result;
+}
+
 export function expectedSupportRoundReturn(mainWager, supportWager, supportId, baseRtp) {
   const { baseCoefficient } = supportRoundParts(mainWager, supportWager, supportId);
   return Math.max(0, baseRtp) * baseCoefficient;
 }
 
 export function calibrateSupportRoundBaseRtp(mainWager, supportWager, supportId) {
-  const { totalStake, baseCoefficient } = supportRoundParts(mainWager, supportWager, supportId);
+  const { totalStake, baseCoefficient } = manualSafeSupportRoundParts(mainWager, supportWager, supportId);
   if (totalStake <= 0 || baseCoefficient <= 0) return TARGET_RTP;
   return Math.min(TARGET_RTP, Math.max(Number.EPSILON, TARGET_RTP * totalStake / baseCoefficient));
 }
