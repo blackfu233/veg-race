@@ -102,7 +102,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 
 .fx-pumpkin .fx-role-main { animation:fxPumpkinHarvest .88s cubic-bezier(.16,.96,.25,1) both; }
 .fx-pumpkin .fx-shape::before { content:""; position:absolute; z-index:1; left:10px; top:0; width:92px; height:84px; border:4px dashed rgba(255,205,66,.92); border-radius:50%; box-shadow:inset 0 0 17px rgba(255,246,150,.48),0 0 19px rgba(255,145,29,.58); animation:fxHarvestRing .82s ease-out both; }
-.fx-pumpkin .fx-shape::after { content:"+ PROFIT"; position:absolute; z-index:5; right:-5px; top:2px; padding:3px 6px; color:#fff7ae; border:2px solid #fff2a0; border-radius:9px; background:linear-gradient(#ef9c2c,#c8671c); box-shadow:0 3px 7px rgba(114,59,13,.28); font-size:12px; font-weight:950; text-shadow:0 1px #994314; animation:fxProfitStamp .76s .08s cubic-bezier(.16,1.1,.25,1) both; }
+.fx-pumpkin .fx-shape::after { content:"本金退回"; position:absolute; z-index:5; right:-5px; top:2px; padding:3px 6px; color:#fff7ae; border:2px solid #fff2a0; border-radius:9px; background:linear-gradient(#ef9c2c,#c8671c); box-shadow:0 3px 7px rgba(114,59,13,.28); font-size:12px; font-weight:950; text-shadow:0 1px #994314; animation:fxProfitStamp .76s .08s cubic-bezier(.16,1.1,.25,1) both; }
 .fx-pumpkin .fx-particles i { display:block; left:51px; top:48px; width:13px; height:13px; border:2px solid #c77a1c; border-radius:50%; background:radial-gradient(circle at 34% 28%,#fff7ab,#ffd145 52%,#e98d21); box-shadow:0 0 8px #ffc442; animation:fxHarvestCoin .82s ease-out both; }
 .fx-pumpkin .fx-particles i:nth-child(1) { --coin-x:-43px; --coin-y:-27px; } .fx-pumpkin .fx-particles i:nth-child(2) { --coin-x:39px; --coin-y:-30px; }
 .fx-pumpkin .fx-particles i:nth-child(3) { --coin-x:-49px; --coin-y:8px; animation-delay:.06s; } .fx-pumpkin .fx-particles i:nth-child(4) { --coin-x:46px; --coin-y:10px; animation-delay:.09s; }
@@ -125,6 +125,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .fx-okra .fx-particles i:nth-child(n+7) { display:none; }
 
 .fx-peapod .fx-role-main { width:72px; height:72px; left:20px; top:9px; animation:fxPodOpen .78s ease-out both; }
+.fx-peapod .fx-shape::after { content:"逃生 2×"; position:absolute; z-index:5; right:-2px; top:1px; padding:3px 6px; color:#f5ffd1; border:2px solid #d9ff83; border-radius:9px; background:linear-gradient(#65b83d,#2f7e32); box-shadow:0 3px 8px rgba(44,112,41,.3); font-size:12px; font-weight:950; text-shadow:0 1px #286329; animation:fxProfitStamp .76s .08s cubic-bezier(.16,1.1,.25,1) both; }
 .fx-peapod .fx-particles i { display:block; border:3px solid #397c2b; border-radius:50%; background:radial-gradient(circle at 32% 27%,#e8ff9a 0 11%,#8ddb4b 42%,#3b9a36 100%); box-shadow:0 0 0 5px rgba(179,244,100,.16),0 0 14px rgba(107,212,62,.62); }
 .fx-peapod .fx-particles i:nth-child(1) { left:43px; top:35px; width:35px; height:35px; animation:peaEject .95s cubic-bezier(.18,.8,.28,1) both; }
 .fx-peapod .fx-particles i:nth-child(2) { left:49px; top:43px; width:20px; height:20px; opacity:.58; animation:fxPeaTrail .7s .08s ease-out both; }
@@ -198,6 +199,9 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .result-ribbon .result-cashed::before,.result-ribbon .result-cashed::after { content:"✦"; position:absolute; z-index:2; color:#fff7a2; font-size:18px; line-height:1; text-shadow:0 0 7px #ffcd38; animation:winSparkle .82s .36s ease-out both; }
 .result-ribbon .result-cashed::before { top:-9px; left:13px; }
 .result-ribbon .result-cashed::after { right:10px; top:-7px; animation-delay:.52s; }
+.result-ribbon .result-recovered { background:linear-gradient(145deg,#ffc85b,#ed8e2e 62%,#bd5e1f); box-shadow:inset 0 0 0 2px rgba(255,255,255,.22),0 0 0 2px rgba(255,225,104,.5),0 7px 18px rgba(166,90,24,.42),0 0 20px rgba(255,199,64,.42); }
+.result-ribbon .result-recovered b { background:linear-gradient(#f7b942,#c96d25); }
+.result-ribbon .result-recovered strong { text-shadow:0 2px 0 #a65a20,0 3px 7px rgba(99,49,14,.35); }
 .result-ribbon .result-lost { background:linear-gradient(#ef7060,#bd493e); }
 .signal-indicator { position:absolute; z-index:14; right:10px; bottom:43px; display:grid; justify-items:end; color:#f5fff0; filter:drop-shadow(0 1px 2px rgba(20,64,28,.35)); }
 .signal-indicator>span { height:17px; display:flex; align-items:end; gap:2px; }

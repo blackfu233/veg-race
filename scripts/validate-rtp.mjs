@@ -6,6 +6,7 @@ import {
   crashPointFromUnit,
   createVisualNearMiss,
   expectedRoundReturn,
+  settleCrashRole,
   settleDuoLink,
   settleSuccessfulCashout,
   TARGET_RTP,
@@ -16,7 +17,7 @@ const targets = [1.2, 1.5, 1.99, 2, 3, 4, 4.99, 5, 6, 10, 25, 50, 99];
 const sampledTargets = [1.5, 2, 3, 5, 10];
 const stakePairs = [[1, 1], [1, 3], [3, 1], [10, 37]];
 const sampleCount = Number.parseInt(process.argv[2] ?? "2000000", 10);
-const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-validation-v22.json");
+const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-validation-v23.json");
 
 function mulberry32(seed) {
   let state = seed >>> 0;
@@ -78,8 +79,11 @@ function simulate(samples) {
     const rolePair = scenario.wagers.map((wager) => wager.roleId);
     const tickets = scenario.wagers.map((wager) => {
       const won = wager.target <= crashPoint;
-      const cashPayout = won ? settleSuccessfulCashout(wager.roleId, wager.stake, wager.target, rng(), rolePair).payout : 0;
-      return { roleId: wager.roleId, stake: wager.stake, cashAt: won ? wager.target : null, payout: cashPayout, status: won ? "cashed" : "lost", abilityRoll: rng() };
+      const abilityRoll = rng();
+      const cashPayout = won
+        ? settleSuccessfulCashout(wager.roleId, wager.stake, wager.target, abilityRoll, rolePair).payout
+        : settleCrashRole(wager.roleId, wager.stake, crashPoint, abilityRoll, rolePair).payout;
+      return { roleId: wager.roleId, stake: wager.stake, cashAt: won ? wager.target : null, payout: cashPayout, status: won ? "cashed" : "lost", abilityRoll };
     });
     const link = settleDuoLink(tickets);
     payout += tickets[0].payout + tickets[1].payout + link.total;
@@ -101,7 +105,7 @@ const [engineSource, testSource] = await Promise.all([
 const sampled = simulate(sampleCount);
 const report = {
   schema: "veggie-dash-rtp-validation/3",
-  variant: "six-role-duo-v22",
+  variant: "six-role-duo-v23",
   targetRtp: TARGET_RTP,
   payoutConvention: "gross return includes stake",
   sharedEvent: "both tickets observe one crash point",

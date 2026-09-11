@@ -81,12 +81,12 @@ type RoundSpec = {
 const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, naturalEnd: 0, visualEnd: 0 };
 
 const roles: Role[] = [
-  { id: "potato", name: "馬鈴薯", short: "2× 前成功：28% 派彩×2", detail: "2× 前成功 → 28% 機率派彩×2", accent: "#f0b55b" },
-  { id: "chili", name: "辣椒", short: "5× 後成功：34% 派彩×2", detail: "5× 後成功 → 34% 機率派彩×2", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "雙注成功：25%取得另一注50%獲利", detail: "雙注都成功 → 25%機率取得另一注50%獲利", accent: "#ff9d3d" },
-  { id: "tomato", name: "番茄", short: "2–5× 自動收：12% 派彩×3", detail: "隨機 2–5× 自動收 → 12% 機率派彩×3", accent: "#ff6358" },
-  { id: "peapod", name: "豌豆莢", short: "雙注成功：25%把本注獲利送給另一注", detail: "雙注都成功 → 25%機率把本注獲利加給另一注", accent: "#70d858" },
-  { id: "mushroom", name: "蘑菇", short: "成功：4.5% 派彩×8", detail: "成功 Cash Out → 4.5% 機率派彩×8 Jackpot", accent: "#8a5abb" },
+  { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：28%機率派彩×2", detail: "2×前成功 → 28%機率派彩×2", accent: "#f0b55b" },
+  { id: "chili", name: "辣椒", short: "5×後 Cash Out：34%機率派彩×2", detail: "5×後成功 → 34%機率派彩×2", accent: "#ff5a4f" },
+  { id: "pumpkin", name: "南瓜", short: "爆掉：5%機率退回本金", detail: "爆掉 → 5%機率退回本金", accent: "#ff9d3d" },
+  { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：12%機率派彩×3", detail: "2–5×自動成功 → 12%機率派彩×3", accent: "#ff6358" },
+  { id: "peapod", name: "豌豆莢", short: "達3×後爆掉：20%機率以2×結算", detail: "達3×後爆掉 → 20%機率以2×結算", accent: "#70d858" },
+  { id: "mushroom", name: "蘑菇", short: "Cash Out成功：4.5%機率派彩×8", detail: "成功 → 4.5%機率派彩×8", accent: "#8a5abb" },
 ];
 
 const forcedAbilityRolls: AbilityRolls = {
@@ -526,7 +526,7 @@ export default function GameClient() {
       linkSettlement.sourceIndexes.forEach((placedIndex) => {
         const ticketIndex = placedIndexes[placedIndex];
         const roleId = next[ticketIndex].roleId;
-        triggerSkillFx(roleId, ticketIndex, roleId === "peapod" ? "豌豆補給 · 獲利傳送！" : roleId === "pumpkin" ? "南瓜藤蔓 · 收成50%獲利！" : `${roleById[roleId].name} · 連攜加成！`);
+        triggerSkillFx(roleId, ticketIndex, `${roleById[roleId].name} · 連攜加成！`);
       });
     }
 
@@ -545,14 +545,44 @@ export default function GameClient() {
   }, [activateSafeRun, haptic, showToast, tone, triggerSkillFx]);
 
   const settleCrash = useCallback((crashPoint: number) => {
-    const settled = ticketsRef.current.map((ticket) => {
+    const currentTickets = ticketsRef.current;
+    const roundRoleIds = selectedRoundRoleIds(currentTickets);
+    let recovered = 0;
+    const triggered: { roleId: RoleId; ticketIndex: number; label: string }[] = [];
+    const settled = currentTickets.map((ticket, ticketIndex) => {
       if (!ticket.enabled || !ticket.placed || ticket.status !== "running" || ticket.remaining <= 0) return ticket;
-      settleCrashRole();
-      return { ...ticket, status: "lost" as const, remaining: 0, note: `爆點 ${crashPoint.toFixed(2)}×` };
+      const abilityRolls = showcaseModeRef.current
+        ? forcedAbilityRolls
+        : roundSpecRef.current?.abilityRolls[ticketIndex] ?? forcedAbilityRolls;
+      const settlement = settleCrashRole(ticket.roleId, ticket.amount, crashPoint, abilityRolls, roundRoleIds);
+      recovered += settlement.payout;
+      if (settlement.triggeredRoleIds.length) {
+        triggered.push({
+          roleId: ticket.roleId,
+          ticketIndex,
+          label: ticket.roleId === "pumpkin" ? "南瓜保本 · 本金退回！" : "豌豆逃生 · 2×結算！",
+        });
+      }
+      return {
+        ...ticket,
+        status: "lost" as const,
+        payout: settlement.payout,
+        remaining: 0,
+        note: settlement.note || `爆點 ${crashPoint.toFixed(2)}×`,
+      };
     });
+    if (recovered > 0) {
+      const nextBalance = balanceRef.current + recovered;
+      balanceRef.current = nextBalance;
+      setBalance(nextBalance);
+      triggered.forEach((effect) => triggerSkillFx(effect.roleId, effect.ticketIndex, effect.label));
+      showToast("爆掉救援成功！", `返還 +${money(recovered)}`, "gold");
+      tone(980, .2, "triangle");
+      haptic([20, 20, 34]);
+    }
     ticketsRef.current = settled;
     setTickets(settled);
-  }, []);
+  }, [haptic, showToast, tone, triggerSkillFx]);
 
   const beginRound = useCallback(() => {
     cancelledAutoBetRef.current.clear();
@@ -962,14 +992,21 @@ export default function GameClient() {
             </div>
           )}
           {phase === "crashed" && placedCount > 0 && (
-            <div className={`result-ribbon ${tickets.some((ticket) => ticket.enabled && ticket.placed && ticket.status === "cashed") ? "has-win" : ""}`} role="status" aria-label="本局下注結果">
-              {tickets.map((ticket, index) => ticket.enabled && ticket.placed && (
-                <span className={`result-${ticket.status}`} key={index}>
-                  <b>{index + 1}</b>
-                  <i>{ticket.status === "cashed" ? ticket.linkAwarded ? "LINK CASH OUT" : "CASH OUT SUCCESS" : "CAUGHT"}</i>
-                  <strong>{ticket.status === "cashed" ? `WIN +${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`}</strong>
-                </span>
-              ))}
+            <div className={`result-ribbon ${tickets.some((ticket) => ticket.enabled && ticket.placed && ticket.payout > 0) ? "has-win" : ""}`} role="status" aria-label="本局下注結果">
+              {tickets.map((ticket, index) => {
+                if (!ticket.enabled || !ticket.placed) return null;
+                const recovered = ticket.status === "lost" && ticket.payout > 0;
+                const resultLabel = ticket.status === "cashed"
+                  ? ticket.linkAwarded ? "LINK CASH OUT" : "CASH OUT SUCCESS"
+                  : recovered ? ticket.roleId === "pumpkin" ? "STAKE REFUND" : "PEA ESCAPE 2×" : "CAUGHT";
+                return (
+                  <span className={recovered ? "result-cashed result-recovered" : `result-${ticket.status}`} key={index}>
+                    <b>{index + 1}</b>
+                    <i>{resultLabel}</i>
+                    <strong>{ticket.payout > 0 ? `WIN +${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`}</strong>
+                  </span>
+                );
+              })}
             </div>
           )}
           {phase === "running" && safeRun.extended && (
@@ -999,9 +1036,6 @@ export default function GameClient() {
             const role = roleById[ticket.roleId];
             const canEdit = canEditUnplacedTicket(ticket);
             const tomatoAuto = usesTomatoAuto(ticket);
-            const roleDetail = ticket.roleId === "pumpkin" || ticket.roleId === "peapod"
-              ? duoDescription.roleDetails[ticketIndex]
-              : role.detail;
             return (
               <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") || ticket.linkAwarded ? "skill-triggered" : ""} ${duoActive ? "has-duo" : ""}`} key={ticketIndex}>
                 <div className="character-grid" aria-label={`下注 ${ticketIndex + 1} 選擇角色`}>
@@ -1023,7 +1057,7 @@ export default function GameClient() {
                   <div className="role-name-row">
                     <strong>{role.name}</strong>
                   </div>
-                  <p>{roleDetail}</p>
+                  <p>{role.detail}</p>
                 </div>
 
                 <div className="amount-stepper">
@@ -1127,8 +1161,8 @@ export default function GameClient() {
                 ))}
               </div>
               <div className="ability-sharing-note">
-                <strong>🔗 雙注能力怎麼生效</strong>
-                <span>兩注選角後，角色卡會直接寫出目前組合的獎勵來源與對象。豌豆把自己的獲利加給另一注；南瓜取得另一注50%獲利。轉移只計算原始獲利，不重複計算其他角色加成。</span>
+                <strong>🔗 雙注連攜</strong>
+                <span>相同角色：提高角色能力機率。不同角色：完成畫面上的兩個條件，兩注獲利一起加成。</span>
               </div>
               <div className="ability-sharing-note near-miss-note">
                 <strong>🎯 自然 Near Miss</strong>
