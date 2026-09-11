@@ -151,7 +151,7 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.match(source, /calibrateRoundBaseRtp\(ticketsToRtpWagers\(currentTickets\)\)/);
 });
 
-test("keeps near miss visual-only and bounded after every wager is settled", async () => {
+test("keeps the post-cashout chase visual-only, bounded, and unlabeled", async () => {
   const close = createVisualNearMiss(2, 2.08, 0.5);
   assert.equal(close.active, true);
   assert.equal(close.extended, true);
@@ -166,7 +166,9 @@ test("keeps near miss visual-only and bounded after every wager is settled", asy
   assert.match(source, /roundEndPoint = safeRunRef\.current\.active \? safeRunRef\.current\.visualEnd : crashPoint/);
   assert.match(source, /setHistory\(\(current\) => \[crashPoint,/);
   assert.match(source, /settleCrash\(crashPoint\)/);
-  assert.match(source, /Near Miss 只延長已結算後的演出/);
+  assert.match(source, /Cash Out 後的角色跑動只呈現本局過程，不改變爆點、派彩或 RTP/);
+  assert.doesNotMatch(source, />NEAR MISS</);
+  assert.doesNotMatch(source, /安全演出|安全領跑|自然 Near Miss/);
 });
 
 test("keeps every duo on one shared crash without parlay settlement", async () => {

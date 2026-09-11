@@ -741,11 +741,9 @@ export default function GameClient() {
       if (duoActive) return `${duoDescription.title}已啟動，準備開跑`;
       return placedCount ? `${placedCount} 注已鎖定，準備開跑` : "選擇角色並在倒數前下注";
     }
-    if (phase === "crashed") return safeRun.active
-      ? `結算爆點 ${safeRun.naturalEnd.toFixed(2)}× · Cash Out 後為演出距離`
-      : `爆點 ${multiplier.toFixed(2)}×`;
+    if (phase === "crashed") return `爆點 ${(safeRun.active ? safeRun.naturalEnd : multiplier).toFixed(2)}×`;
     if (!placedCount) return "本局觀戰中";
-    if (safeRun.active) return safeRun.extended ? "已全數 Cash Out · Near Miss 安全領跑" : "已全數 Cash Out · 安全領跑";
+    if (safeRun.active) return "已全數 Cash Out";
     if (!runningCount) return "本局已完成結算";
     if (duoActive) return duoDescription.shortSummary;
     return "在收割者追上前 Cash Out！";
@@ -903,8 +901,8 @@ export default function GameClient() {
           </div>
 
           <div className="round-display">
-            <strong>{phase === "betting" ? "Betting..." : phase === "running" ? safeRun.active ? "Safe Run!" : "Run!" : caughtCount ? "Caught!" : safeRun.extended ? "Near Miss!" : "Round End"}</strong>
-            <span>{phase === "betting" ? Math.ceil(countdown) : `${multiplier.toFixed(2)}×`}</span>
+            <strong>{phase === "betting" ? "Betting..." : phase === "running" ? "Run!" : caughtCount ? "Caught!" : "Round End"}</strong>
+            <span>{phase === "betting" ? Math.ceil(countdown) : `${(phase === "crashed" && safeRun.active ? safeRun.naturalEnd : multiplier).toFixed(2)}×`}</span>
             <small>{phase === "betting" ? roundSpec ? `ROUND ${roundNo} · ${placedCount}/2 BETS` : "PREPARING FAIR ROUND" : stageMessage}</small>
           </div>
 
@@ -1008,9 +1006,6 @@ export default function GameClient() {
                 );
               })}
             </div>
-          )}
-          {phase === "running" && safeRun.extended && (
-            <div className="near-miss-cue" role="status" aria-live="polite"><b>NEAR MISS</b><small>已完成結算 · 安全演出</small></div>
           )}
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
           {phase === "betting" && (
@@ -1164,10 +1159,6 @@ export default function GameClient() {
                 <strong>🔗 雙注連攜</strong>
                 <span>相同角色：提高角色能力機率。不同角色：完成畫面上的兩個條件，兩注獲利一起加成。</span>
               </div>
-              <div className="ability-sharing-note near-miss-note">
-                <strong>🎯 自然 Near Miss</strong>
-                <span>已 Cash Out 的角色會繼續跑到本局結束；只有全部下注都已結算、而且原爆點就在附近時，才增加一小段安全追逐演出。未結算的下注絕不延後爆點。</span>
-              </div>
               <div className="menu-actions">
                 <button
                   className={`showcase-control ${showcaseMode ? "on" : ""}`}
@@ -1209,8 +1200,8 @@ export default function GameClient() {
               <span className="field-label">本局玩法／組合 VI 曲線</span>
               <code>{phase === "betting" ? "下注鎖定後計算" : `${duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
-              <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + visual near-miss unit</code>
-              <p>開局先承諾 Seed、爆點亂數與演出亂數；下注鎖定後，再依目前玩法、角色組合與投注比例，將同一爆點亂數映射到對應 VI 曲線。開啟 Auto Cash Out 時，曲線依鎖定倍率校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動 Cash Out 不讀取輸入框倍率，改用防套利曲線，已測固定時機策略不會高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用同一結算爆點；Near Miss 只延長已結算後的演出，不參與派彩、爆點紀錄或 RTP。</p>
+              <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + presentation unit</code>
+              <p>開局先承諾 Seed、爆點亂數與畫面亂數；下注鎖定後，再依目前玩法、角色組合與投注比例，將同一爆點亂數映射到對應 VI 曲線。開啟 Auto Cash Out 時，曲線依鎖定倍率校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動 Cash Out 不讀取輸入框倍率，改用防套利曲線，已測固定時機策略不會高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用同一結算爆點；Cash Out 後的角色跑動只呈現本局過程，不改變爆點、派彩或 RTP。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>
