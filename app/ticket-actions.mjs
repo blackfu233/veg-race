@@ -23,7 +23,6 @@ export function cancelPendingBet({ tickets, balance, index, phase, now, deadline
     cashAt: null,
     remaining: 1,
     autoRoleTarget: null,
-    linkAwarded: false,
     note: "",
   } : ticket);
   return { tickets: nextTickets, balance: balance + refund, refund, cancelledIndexes };

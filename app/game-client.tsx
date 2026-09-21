@@ -1,17 +1,24 @@
 "use client";
 
 import Image from "next/image";
-import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "./ticket-actions.mjs";
 import {
+  calibratePumpkinContracts,
   calibrateRoundBaseRtp,
   crashPointFromUnit,
+  createPumpkinContract,
   createVisualNearMiss,
   describeDuoPair,
+  duoRuleFor,
+  duoRuntimeForTicket,
   MAX_SETTLEMENT_MULTIPLIER,
-  settleDuoLink,
+  peapodPayoutFactorFromUnit,
+  peapodThresholdFromUnit,
   settleCrashRole,
+  settlePumpkinCashout,
+  settlePumpkinCrash,
   settleSuccessfulCashout,
   TARGET_RTP,
 } from "./rtp-engine.mjs";
@@ -26,7 +33,19 @@ type RoleId =
   | "peapod"
   | "mushroom";
 
-type AbilityRolls = Record<"potato" | "chili" | "pumpkin" | "tomato" | "peapod" | "mushroom" | "target", number>;
+type AbilityRolls = Record<"potato" | "chili" | "pumpkin" | "tomato" | "peapod" | "mushroom" | "target" | "peapodTarget" | "peapodPrize", number>;
+
+type PumpkinContract = {
+  active: boolean;
+  stake: number;
+  target: number;
+  clears: number;
+  multipliers: number[];
+  stages: number;
+  factor: number;
+  ruleKey: string;
+  baseRtp: number;
+};
 
 type Role = {
   id: RoleId;
@@ -64,7 +83,9 @@ type Ticket = {
   autoCash: number | null;
   autoCashTarget: number;
   autoRoleTarget: number | null;
-  linkAwarded: boolean;
+  peapodThreshold: number | null;
+  peapodFactor: number | null;
+  pumpkinContract: PumpkinContract;
   note: string;
 };
 
@@ -83,9 +104,9 @@ const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, natura
 const roles: Role[] = [
   { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：28%機率派彩×2", detail: "2×前成功 → 28%機率派彩×2", accent: "#f0b55b" },
   { id: "chili", name: "辣椒", short: "5×後 Cash Out：34%機率派彩×2", detail: "5×後成功 → 34%機率派彩×2", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "爆掉：5%機率退回本金", detail: "爆掉 → 5%機率退回本金", accent: "#ff9d3d" },
+  { id: "pumpkin", name: "南瓜", short: "鎖定BET與目標；連過3局，總倍率×3派彩", detail: "連續3局達標 → 總倍率×3派彩", accent: "#ff9d3d" },
   { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：12%機率派彩×3", detail: "2–5×自動成功 → 12%機率派彩×3", accent: "#ff6358" },
-  { id: "peapod", name: "豌豆莢", short: "達3×後爆掉：20%機率以2×結算", detail: "達3×後爆掉 → 20%機率以2×結算", accent: "#70d858" },
+  { id: "peapod", name: "豌豆莢", short: "開跑揭曉2～5×門檻與倍獎；達標後25%機率觸發", detail: "開跑揭曉門檻與倍獎 → 達標後25%機率觸發", accent: "#70d858" },
   { id: "mushroom", name: "蘑菇", short: "Cash Out成功：4.5%機率派彩×8", detail: "成功 → 4.5%機率派彩×8", accent: "#8a5abb" },
 ];
 
@@ -97,9 +118,20 @@ const forcedAbilityRolls: AbilityRolls = {
   peapod: 0,
   mushroom: 0,
   target: 0.5,
+  peapodTarget: 0.5,
+  peapodPrize: 0.999,
 };
 
 const roleById = Object.fromEntries(roles.map((role) => [role.id, role])) as Record<RoleId, Role>;
+
+function emptyContract(): PumpkinContract {
+  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 3, ruleKey: "pumpkin", baseRtp: TARGET_RTP };
+}
+
+function runtimeForTicket(roleIds: RoleId[], spec: RoundSpec, ticketIndex: number, showcase = false) {
+  const rolls = showcase ? [forcedAbilityRolls, forcedAbilityRolls] : spec.abilityRolls;
+  return duoRuntimeForTicket(roleIds, rolls, ticketIndex);
+}
 
 function blankTicket(index: number): Ticket {
   return {
@@ -115,7 +147,9 @@ function blankTicket(index: number): Ticket {
     autoCash: null,
     autoCashTarget: 2,
     autoRoleTarget: null,
-    linkAwarded: false,
+    peapodThreshold: null,
+    peapodFactor: null,
+    pumpkinContract: emptyContract(),
     note: "",
   };
 }
@@ -136,13 +170,72 @@ function selectedRoundRoleIds(tickets: Ticket[]) {
     .map((ticket) => ticket.roleId);
 }
 
-function ticketsToRtpWagers(tickets: Ticket[]) {
-  return tickets.flatMap((ticket) => ticket.enabled && ticket.placed ? [{
+function ticketsToRtpWagers(tickets: Ticket[], spec: RoundSpec) {
+  const active = tickets.flatMap((ticket, ticketIndex) => ticket.enabled && ticket.placed && !ticket.pumpkinContract.active ? [{ ticket, ticketIndex }] : []);
+  const roleIds = active.map(({ ticket }) => ticket.roleId);
+  return active.map(({ ticket, ticketIndex }) => {
+    const runtime = active.length === 2 ? runtimeForTicket(roleIds, spec, ticketIndex) : null;
+    const target = runtime?.rule.kind === "auto" ? runtime.autoTarget
+      : runtime?.rule.kind === "reveal-auto" ? runtime.threshold
+      : ticketStrategyTarget(ticket);
+    return {
       roleId: ticket.roleId,
       stake: ticket.amount,
-      target: ticketStrategyTarget(ticket),
-      manual: !usesTomatoAuto(ticket) && !ticket.autoCash,
-    }] : []);
+      target: target ?? ticketStrategyTarget(ticket),
+      manual: !["auto", "reveal-auto"].includes(runtime?.rule.kind ?? "") && !usesTomatoAuto(ticket) && !ticket.autoCash,
+      peapodThreshold: ticket.peapodThreshold ?? 3,
+      peapodFactor: ticket.peapodFactor ?? 2,
+      duoThreshold: runtime?.threshold,
+      duoFactor: runtime?.factor,
+    };
+  });
+}
+
+function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
+  const placedIndexes = tickets.flatMap((ticket, index) => ticket.enabled && ticket.placed ? [index] : []);
+  if (placedIndexes.length === 2) {
+    const roleIds = placedIndexes.map((index) => tickets[index].roleId);
+    const runtime = runtimeForTicket(roleIds, spec, placedIndexes[0]);
+    if (runtime?.rule.kind === "contract") {
+      const targetSourceIndex = placedIndexes.find((index) => tickets[index].roleId === "pumpkin") ?? placedIndexes[0];
+      const selectedTarget = Math.min(runtime.rule.max ? runtime.rule.max - .01 : 2.88, tickets[targetSourceIndex].autoCashTarget);
+      const configured = tickets.map((ticket, index) => {
+        if (!placedIndexes.includes(index)) return ticket;
+        const ticketRuntime = runtimeForTicket(roleIds, spec, index);
+        const target = ticketRuntime?.contractTarget ?? selectedTarget;
+        return {
+          ...ticket,
+          pumpkinContract: ticket.pumpkinContract.active && ticket.pumpkinContract.ruleKey === runtime.key
+            ? ticket.pumpkinContract
+            : createPumpkinContract(ticket.amount, target, {
+                stages: runtime.rule.stages,
+                factor: runtime.factor,
+                ruleKey: runtime.key,
+              }),
+        };
+      });
+      const activeContracts = configured.flatMap((ticket, index) => placedIndexes.includes(index) ? [ticket.pumpkinContract] : []);
+      const baseRtp = calibratePumpkinContracts(activeContracts);
+      return configured.map((ticket, index) => placedIndexes.includes(index)
+        ? { ...ticket, pumpkinContract: { ...ticket.pumpkinContract, baseRtp } }
+        : ticket);
+    }
+    return tickets.map((ticket, index) => placedIndexes.includes(index) ? { ...ticket, pumpkinContract: emptyContract() } : ticket);
+  }
+  if (placedIndexes.length === 1) {
+    const placedIndex = placedIndexes[0];
+    return tickets.map((ticket, index) => {
+      if (index !== placedIndex) return ticket;
+      if (ticket.roleId !== "pumpkin") return { ...ticket, pumpkinContract: emptyContract() };
+      return {
+        ...ticket,
+        pumpkinContract: ticket.pumpkinContract.active && ticket.pumpkinContract.ruleKey === "pumpkin"
+          ? ticket.pumpkinContract
+          : createPumpkinContract(ticket.amount, Math.min(2.88, ticket.autoCashTarget)),
+      };
+    });
+  }
+  return tickets;
 }
 
 function money(value: number) {
@@ -167,7 +260,7 @@ async function digestHex(value: string) {
 
 async function makeRoundSpec(): Promise<RoundSpec> {
   const seed = crypto.randomUUID();
-  const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target"] as const;
+  const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target", "peapodTarget", "peapodPrize"] as const;
   const [commitment, crashHash, nearMissHash, ...abilityHashes] = await Promise.all([
     digestHex(seed),
     digestHex(seed + ":crash"),
@@ -195,7 +288,7 @@ function Sprite({ roleId, className = "" }: { roleId: RoleId; className?: string
   const role = roleById[roleId];
   return (
     <div className={`veg-sprite ${className}`}>
-      <Image src={`/role-icons/${roleId}.webp?v=5`} width={128} height={128} sizes="(max-width: 440px) 42px, 48px" alt={role.name} draggable={false} />
+      <Image src={`/role-icons/${roleId}.webp?v=5`} width={128} height={128} sizes="(max-width: 440px) 42px, 48px" alt={role.name} draggable={false} unoptimized />
     </div>
   );
 }
@@ -209,8 +302,8 @@ function SkillEffect({ effect, x }: { effect: SkillFx; x: number }) {
       aria-label={effect.label}
     >
       <span className="fx-shape">
-        <Image className="fx-role-art fx-role-main" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
-        <Image className="fx-role-art fx-role-copy" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" />
+        <Image className="fx-role-art fx-role-main" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" unoptimized />
+        <Image className="fx-role-art fx-role-copy" src={`/role-icons/${effect.roleId}.webp?v=5`} width={128} height={128} alt="" aria-hidden="true" unoptimized />
         <span className="fx-particles"><i /><i /><i /><i /><i /><i /><i /><i /></span>
       </span>
       <strong>{effect.label}</strong>
@@ -385,8 +478,9 @@ export default function GameClient() {
 
   const placeBet = useCallback((index: number, automatic = false) => {
     const ticket = ticketsRef.current[index];
+    const spec = roundSpecRef.current;
     if (!bettingWindowOpen(phaseRef.current, Boolean(roundSpecRef.current), performance.now(), betDeadlineRef.current)
-      || !ticket.enabled || ticket.placed || (automatic && (!ticket.autoBet || cancelledAutoBetRef.current.has(index)))) return;
+      || !spec || !ticket.enabled || ticket.placed || (automatic && (!ticket.autoBet || cancelledAutoBetRef.current.has(index)))) return;
 
     if (balanceRef.current < ticket.amount) {
       showToast("籌碼不足", "降低下注金額再試一次", "bad");
@@ -394,7 +488,9 @@ export default function GameClient() {
       return;
     }
     const nextBalance = balanceRef.current - ticket.amount;
-    const targetRoll = roundSpecRef.current?.abilityRolls[index]?.target ?? .5;
+    const targetRoll = spec.abilityRolls[index].target;
+    const peapodTargetRoll = spec.abilityRolls[index].peapodTarget;
+    const peapodPrizeRoll = spec.abilityRolls[index].peapodPrize;
     balanceRef.current = nextBalance;
     setBalance(nextBalance);
     const nextTickets = ticketsRef.current.map((current, ticketIndex) => ticketIndex === index ? {
@@ -405,12 +501,14 @@ export default function GameClient() {
       cashAt: null,
       remaining: 1,
       note: "",
-      linkAwarded: false,
+      peapodThreshold: current.roleId === "peapod" ? peapodThresholdFromUnit(peapodTargetRoll) : null,
+      peapodFactor: current.roleId === "peapod" ? peapodPayoutFactorFromUnit(peapodPrizeRoll) : null,
       autoRoleTarget: current.roleId === "tomato" ? Math.round((2 + targetRoll * 3) * 100) / 100 : null,
     } : current);
-    ticketsRef.current = nextTickets;
+    const configuredTickets = applyLockedAbilitySetup(nextTickets, spec);
+    ticketsRef.current = configuredTickets;
     cancelledAutoBetRef.current.delete(index);
-    setTickets(nextTickets);
+    setTickets(configuredTickets);
     const choiceName = roleById[ticket.roleId].name;
     showToast(`下注 ${index + 1} 已鎖定`, `${choiceName} · ${money(ticket.amount)} 籌碼`, "good");
     tone(520);
@@ -429,10 +527,17 @@ export default function GameClient() {
     if (!result.refund) return;
     result.cancelledIndexes.forEach((ticketIndex) => cancelledAutoBetRef.current.add(ticketIndex));
     balanceRef.current = result.balance;
-    ticketsRef.current = result.tickets;
+    const resetTickets = result.tickets.map((ticket, ticketIndex) => result.cancelledIndexes.includes(ticketIndex) ? {
+      ...ticket,
+      peapodThreshold: null,
+      peapodFactor: null,
+      pumpkinContract: settlePumpkinCrash(ticket.pumpkinContract),
+    } : ticket);
+    const cancelledTickets = roundSpecRef.current ? applyLockedAbilitySetup(resetTickets, roundSpecRef.current) : resetTickets;
+    ticketsRef.current = cancelledTickets;
     setBalance(result.balance);
-    setTickets(result.tickets);
-    const autoNextRound = result.cancelledIndexes.some((ticketIndex) => result.tickets[ticketIndex].autoBet);
+    setTickets(cancelledTickets);
+    const autoNextRound = result.cancelledIndexes.some((ticketIndex) => cancelledTickets[ticketIndex].autoBet);
     showToast(
       `已取消下注 ${index + 1}`,
       `退回 ${money(result.refund)} 籌碼${autoNextRound ? " · AUTO 下一局繼續" : ""}`,
@@ -462,14 +567,63 @@ export default function GameClient() {
     const abilityRolls = showcaseModeRef.current
       ? forcedAbilityRolls
       : roundSpecRef.current?.abilityRolls[index] ?? forcedAbilityRolls;
-    if (current.roleId === "tomato" && !automatic) {
-      showToast("番茄會自己決定時機", "將在 2.00×–5.00× 自動 Cash Out", "bad");
+    const roundRoleIds = selectedRoundRoleIds(currentTickets);
+    const spec = roundSpecRef.current;
+    const duoRuntime = roundRoleIds.length === 2 && spec ? runtimeForTicket(roundRoleIds, spec, index, showcaseModeRef.current) : null;
+    if ((current.roleId === "tomato" || ["auto", "reveal-auto"].includes(duoRuntime?.rule.kind ?? "")) && !automatic) {
+      showToast("本局會自動 Cash Out", duoRuntime ? "融合能力已鎖定本局收成點" : "番茄將在 2.00×–5.00× 自動收成", "bad");
       tone(210);
       return;
     }
 
+    if (current.pumpkinContract.active) {
+      const contract = current.pumpkinContract;
+      if (!contract.active || at + 1e-9 < contract.target) {
+        showToast("連續挑戰尚未達標", `本關需到 ${contract.target.toFixed(2)}×`, "bad");
+        tone(210);
+        return;
+      }
+      const challenge = settlePumpkinCashout(contract, at);
+      if (!challenge.accepted) return;
+      const cleared = challenge.complete ? contract.stages : challenge.contract.clears;
+      const contractTitle = duoRuleFor(roundRoleIds)?.title ?? "南瓜三連關";
+      const note = challenge.complete
+        ? `${contractTitle}完成：總倍率×${contract.factor}`
+        : `${contractTitle}第 ${cleared}/${contract.stages} 關成功：等待下一局`;
+      const next = currentTickets.map((ticket, ticketIndex) => ticketIndex === index ? {
+        ...ticket,
+        payout: challenge.payout,
+        cashAt: at,
+        remaining: 0,
+        status: "cashed" as const,
+        pumpkinContract: challenge.contract,
+        note,
+      } : ticket);
+      if (challenge.payout > 0) {
+        const nextBalance = balanceRef.current + challenge.payout;
+        balanceRef.current = nextBalance;
+        setBalance(nextBalance);
+      }
+      ticketsRef.current = next;
+      setTickets(next);
+      activateSafeRun(next);
+      triggerSkillFx(current.roleId, index, challenge.complete ? `${contractTitle} ×${contract.factor}！` : `${contractTitle} ${cleared}/${contract.stages}！`);
+      showToast(
+        challenge.complete ? `${contractTitle}完成！` : `${contractTitle}第 ${cleared}/${contract.stages} 關成功`,
+        challenge.complete ? `派彩 +${money(challenge.payout)}` : `已記錄 ${at.toFixed(2)}× · BET繼續鎖定`,
+        "gold",
+      );
+      tone(challenge.complete ? 1080 : 820, challenge.complete ? .22 : .14, "triangle");
+      haptic(challenge.complete ? [20, 22, 20, 22, 40] : [18, 24, 18]);
+      return;
+    }
+
     const stake = current.amount;
-    const settlement = settleSuccessfulCashout(current.roleId, stake, at, abilityRolls, selectedRoundRoleIds(currentTickets));
+    const settlement = settleSuccessfulCashout(current.roleId, stake, at, abilityRolls, roundRoleIds, {
+      peapodThreshold: current.peapodThreshold ?? undefined,
+      peapodFactor: current.peapodFactor ?? undefined,
+      duoRuntime: duoRuntime ?? undefined,
+    });
     const paid = settlement.payout;
     const roleNote = current.roleId === "tomato" && !settlement.note
       ? `番茄：在 ${at.toFixed(2)}× 自動收成`
@@ -483,10 +637,15 @@ export default function GameClient() {
       potato: "馬鈴薯 · 早收 ×2！",
       chili: "辣椒 · 高倍 ×2！",
       tomato: "番茄旋轉收成 ×3！",
+      peapod: `豌豆暴擊 ×${Math.round(paid / Math.max(1, stake * at))}！`,
       mushroom: "蘑菇 · JACKPOT ×8！",
     };
-    settlement.triggeredRoleIds.forEach((roleId) => triggerSkillFx(roleId, index, labels[roleId] ?? "角色能力觸發！"));
-    let next = currentTickets.map((ticket, ticketIndex) => {
+    settlement.triggeredRoleIds.forEach((roleId) => triggerSkillFx(
+      roleId,
+      index,
+      duoRuntime ? `${duoRuntime.rule.title} ×${duoRuntime.factor}！` : labels[roleId] ?? "角色能力觸發！",
+    ));
+    const next = currentTickets.map((ticket, ticketIndex) => {
       if (ticketIndex !== index) return ticket;
       return {
         ...ticket,
@@ -498,50 +657,17 @@ export default function GameClient() {
       };
     });
 
-    const placedIndexes = next.flatMap((ticket, ticketIndex) => ticket.enabled && ticket.placed ? [ticketIndex] : []);
-    const settlementTickets = next.map((ticket, ticketIndex) => ({
-      roleId: ticket.roleId,
-      stake: ticket.amount,
-      cashAt: ticket.cashAt,
-      payout: ticket.payout,
-      status: ticket.status,
-      placed: ticket.placed,
-      linkAwarded: ticket.linkAwarded,
-      abilityRoll: showcaseModeRef.current ? 0 : roundSpecRef.current?.abilityRolls[ticketIndex]?.[ticket.roleId] ?? .5,
-    }));
-    const linkSettlement = settleDuoLink(placedIndexes.map((ticketIndex) => settlementTickets[ticketIndex]));
-
-    if (linkSettlement.triggered) {
-      next = next.map((ticket, ticketIndex) => {
-        const placedIndex = placedIndexes.indexOf(ticketIndex);
-        if (placedIndex < 0) return ticket;
-        const extra = linkSettlement.extras[placedIndex] ?? 0;
-        return {
-          ...ticket,
-          payout: ticket.payout + extra,
-          linkAwarded: true,
-          note: [ticket.note, extra > 0 ? `連攜追加＋${money(extra)}` : "連攜條件完成"].filter(Boolean).join(" · "),
-        };
-      });
-      linkSettlement.sourceIndexes.forEach((placedIndex) => {
-        const ticketIndex = placedIndexes[placedIndex];
-        const roleId = next[ticketIndex].roleId;
-        triggerSkillFx(roleId, ticketIndex, `${roleById[roleId].name} · 連攜加成！`);
-      });
-    }
-
-    const nextBalance = balanceRef.current + paid + linkSettlement.total;
+    const nextBalance = balanceRef.current + paid;
     balanceRef.current = nextBalance;
     ticketsRef.current = next;
     setBalance(nextBalance);
     setTickets(next);
     activateSafeRun(next);
 
-    if (linkSettlement.triggered) showToast(`🔗 ${linkSettlement.title}成功！`, `追加獎勵 +${money(linkSettlement.total)}`, "gold");
-    else if (note) showToast(note, `下注 ${index + 1} +${money(paid)}`, skillTone);
+    if (note) showToast(note, `下注 ${index + 1} +${money(paid)}`, skillTone);
     else showToast(`下注 ${index + 1} Cash Out`, `${at.toFixed(2)}× · +${money(paid)}`, "good");
-    tone(linkSettlement.triggered ? 1080 : skillTone === "gold" ? 930 : 720, linkSettlement.triggered ? .2 : .13, linkSettlement.triggered ? "triangle" : "sine");
-    haptic(linkSettlement.triggered ? [20, 22, 20, 22, 34] : skillTone === "gold" ? [18, 28, 24] : 18);
+    tone(skillTone === "gold" ? 930 : 720, .13, "sine");
+    haptic(skillTone === "gold" ? [18, 28, 24] : 18);
   }, [activateSafeRun, haptic, showToast, tone, triggerSkillFx]);
 
   const settleCrash = useCallback((crashPoint: number) => {
@@ -551,6 +677,14 @@ export default function GameClient() {
     const triggered: { roleId: RoleId; ticketIndex: number; label: string }[] = [];
     const settled = currentTickets.map((ticket, ticketIndex) => {
       if (!ticket.enabled || !ticket.placed || ticket.status !== "running" || ticket.remaining <= 0) return ticket;
+      if (ticket.pumpkinContract.active) return {
+        ...ticket,
+        status: "lost" as const,
+        payout: 0,
+        remaining: 0,
+        pumpkinContract: settlePumpkinCrash(ticket.pumpkinContract),
+        note: `連續挑戰失敗：爆點 ${crashPoint.toFixed(2)}×`,
+      };
       const abilityRolls = showcaseModeRef.current
         ? forcedAbilityRolls
         : roundSpecRef.current?.abilityRolls[ticketIndex] ?? forcedAbilityRolls;
@@ -560,7 +694,7 @@ export default function GameClient() {
         triggered.push({
           roleId: ticket.roleId,
           ticketIndex,
-          label: ticket.roleId === "pumpkin" ? "南瓜保本 · 本金退回！" : "豌豆逃生 · 2×結算！",
+          label: "角色能力觸發！",
         });
       }
       return {
@@ -598,17 +732,21 @@ export default function GameClient() {
     setSkillEffects([]);
     safeRunRef.current = idleSafeRun;
     setSafeRun(idleSafeRun);
-    const nextTickets = ticketsRef.current.map((ticket) => ({
-      ...ticket,
-      status: "idle" as const,
-      placed: false,
-      payout: 0,
-      cashAt: null,
-      remaining: 1,
-      autoRoleTarget: null,
-      linkAwarded: false,
-      note: "",
-    }));
+    const nextTickets = ticketsRef.current.map((ticket) => {
+      const continuesContract = ticket.pumpkinContract.active;
+      return {
+        ...ticket,
+        status: continuesContract ? "placed" as const : "idle" as const,
+        placed: continuesContract,
+        payout: 0,
+        cashAt: null,
+        remaining: 1,
+        autoRoleTarget: null,
+        peapodThreshold: null,
+        peapodFactor: null,
+        note: continuesContract ? `連續挑戰第 ${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages} 關待跑` : "",
+      };
+    });
     ticketsRef.current = nextTickets;
     setTickets(nextTickets);
   }, []);
@@ -657,7 +795,9 @@ export default function GameClient() {
       const currentSpec = roundSpecRef.current;
       if (!currentSpec) return;
       const currentTickets = ticketsRef.current;
-      const baseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets));
+      const regularBaseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets, currentSpec));
+      const activeContracts = currentTickets.flatMap((ticket) => ticket.enabled && ticket.placed && ticket.pumpkinContract.active ? [ticket.pumpkinContract] : []);
+      const baseRtp = activeContracts.length ? activeContracts[0].baseRtp : regularBaseRtp;
       const resolvedSpec = {
         ...currentSpec,
         baseRtp,
@@ -696,9 +836,16 @@ export default function GameClient() {
       const elapsed = Math.max(0, now - runStartRef.current) / 1000;
       const nextMultiplier = Math.exp(elapsed / 5.2);
       const crashPoint = roundSpecRef.current?.crashPoint ?? 2.5;
+      const placedRoleIds = selectedRoundRoleIds(ticketsRef.current);
       ticketsRef.current.forEach((ticket, index) => {
         if (ticket.status !== "running") return;
-        const target = usesTomatoAuto(ticket) ? ticket.autoRoleTarget : ticket.autoCash;
+        const spec = roundSpecRef.current;
+        const runtime = placedRoleIds.length === 2 && spec ? runtimeForTicket(placedRoleIds, spec, index, showcaseModeRef.current) : null;
+        const target = ticket.pumpkinContract.active
+          ? ticket.pumpkinContract.target
+          : runtime?.rule.kind === "auto" ? runtime.autoTarget
+          : runtime?.rule.kind === "reveal-auto" ? runtime.threshold
+          : usesTomatoAuto(ticket) ? ticket.autoRoleTarget : ticket.autoCash;
         if (target && target <= crashPoint && nextMultiplier >= target) cashOut(index, target, true);
       });
       const roundEndPoint = safeRunRef.current.active ? safeRunRef.current.visualEnd : crashPoint;
@@ -732,11 +879,40 @@ export default function GameClient() {
   const placedCount = tickets.filter((ticket) => ticket.enabled && ticket.placed).length;
   const runningCount = tickets.filter((ticket) => ticket.status === "running").length;
   const caughtCount = tickets.filter((ticket) => ticket.status === "lost").length;
-  const duoDescription = describeDuoPair(tickets.map((ticket) => ticket.roleId));
+  const stakeLocked = tickets.some((ticket) => ticket.placed || ticket.pumpkinContract.active);
+  const selectedRoleIds = tickets.map((ticket) => ticket.roleId);
+  const placedRoleIds = tickets.filter((ticket) => ticket.enabled && ticket.placed).map((ticket) => ticket.roleId);
+  const duoDescription = describeDuoPair(selectedRoleIds);
+  const selectedDuoRule = duoRuleFor(selectedRoleIds);
   const duoActive = placedCount === 2;
-  const manualCurveActive = tickets.some((ticket) => ticket.enabled && ticket.placed && !usesTomatoAuto(ticket) && !ticket.autoCash);
+  const duoPreviewActive = phase === "betting" && !duoActive;
+  const duoFusionActive = duoActive;
+  const currentDuoRuntimes = tickets.map((_, ticketIndex) => duoActive && roundSpec
+    ? runtimeForTicket(placedRoleIds, roundSpec, ticketIndex, showcaseMode)
+    : null);
+  const currentDuoRuntime = currentDuoRuntimes[0];
+  const selectedAutoRange = selectedDuoRule?.kind === "auto"
+    ? `${selectedDuoRule.autoMin}–${selectedDuoRule.autoMax}×`
+    : selectedDuoRule?.kind === "reveal-auto"
+      ? `${selectedDuoRule.thresholds?.[0]}–${selectedDuoRule.thresholds?.at(-1)}×`
+      : "";
+  const duoCardDetail = (ticket: Ticket, ticketIndex: number) => {
+    const runtime = currentDuoRuntimes[ticketIndex];
+    if (ticket.pumpkinContract.active && (phase !== "betting" || ticket.pumpkinContract.clears > 0)) {
+      return `${duoDescription.summary}｜本注 ${ticket.pumpkinContract.target.toFixed(2)}×｜進度 ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages}`;
+    }
+    if (phase !== "betting" && runtime && ["reveal", "reveal-auto"].includes(runtime.rule.kind)) {
+      return `本注門檻 ${runtime.threshold}×｜倍獎×${runtime.factor}｜${Math.round((runtime.rule.chance ?? 0) * 100)}%機率觸發`;
+    }
+    if (phase !== "betting" && runtime?.rule.kind === "auto") {
+      return `本注 ${runtime.autoTarget?.toFixed(2)}× 自動Cash Out｜${Math.round((runtime.rule.chance ?? 0) * 100)}%機率派彩×${runtime.factor}`;
+    }
+    return duoDescription.summary;
+  };
+  const manualCurveActive = !["auto", "reveal-auto"].includes(currentDuoRuntime?.rule.kind ?? "")
+    && tickets.some((ticket) => ticket.enabled && ticket.placed && !ticket.pumpkinContract.active && !usesTomatoAuto(ticket) && !ticket.autoCash);
 
-  const stageMessage = useMemo(() => {
+  const stageMessage = (() => {
     if (phase === "betting") {
       if (duoActive) return `${duoDescription.title}已啟動，準備開跑`;
       return placedCount ? `${placedCount} 注已鎖定，準備開跑` : "選擇角色並在倒數前下注";
@@ -747,7 +923,7 @@ export default function GameClient() {
     if (!runningCount) return "本局已完成結算";
     if (duoActive) return duoDescription.shortSummary;
     return "在收割者追上前 Cash Out！";
-  }, [duoActive, duoDescription.shortSummary, duoDescription.title, multiplier, phase, placedCount, runningCount, safeRun]);
+  })();
 
   const stageProgress = phase === "betting"
     ? Math.max(4, ((8 - countdown) / 8) * 100)
@@ -784,20 +960,23 @@ export default function GameClient() {
   };
 
   const changeStake = (ticketIndex: number, delta: number) => {
-    if (!canEditUnplacedTicket(ticketsRef.current[ticketIndex])) return;
-    updateTicket(ticketIndex, (ticket) => {
-      const nextAmount = delta > 0 && ticket.amount < 50
+    if (stakeLocked || !canEditUnplacedTicket(ticketsRef.current[ticketIndex])) return;
+    const currentAmount = ticketsRef.current[ticketIndex].amount;
+    const nextAmount = delta > 0 && currentAmount < 50
         ? 50
-        : delta < 0 && ticket.amount <= 50
+        : delta < 0 && currentAmount <= 50
           ? 10
-          : ticket.amount + delta;
-      return { ...ticket, amount: Math.max(10, Math.min(5000, nextAmount)) };
-    });
+          : currentAmount + delta;
+    const sharedAmount = Math.max(10, Math.min(5000, nextAmount));
+    const next = ticketsRef.current.map((ticket) => ({ ...ticket, amount: sharedAmount }));
+    ticketsRef.current = next;
+    setTickets(next);
     tone(delta > 0 ? 610 : 460, .045, "triangle");
   };
 
   const toggleAutoBet = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
+    if (ticket.pumpkinContract.active) return;
     const willEnable = !ticket.autoBet;
     if (willEnable) cancelledAutoBetRef.current.delete(ticketIndex);
     updateTicket(ticketIndex, (current) => ({ ...current, autoBet: !current.autoBet }));
@@ -813,9 +992,11 @@ export default function GameClient() {
   };
 
   const changeAutoCashTarget = (ticketIndex: number, nextValue: number) => {
-    if (!canEditUnplacedTicket(ticketsRef.current[ticketIndex])) return;
+    const ticket = ticketsRef.current[ticketIndex];
+    if (!canEditUnplacedTicket(ticket)) return;
     if (!Number.isFinite(nextValue)) return;
-    const target = Math.min(MAX_SETTLEMENT_MULTIPLIER, Math.max(1.01, Math.round(nextValue * 100) / 100));
+    const maxTarget = ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    const target = Math.min(maxTarget, Math.max(1.01, Math.round(nextValue * 100) / 100));
     updateTicket(ticketIndex, (current) => ({
       ...current,
       autoCashTarget: target,
@@ -852,32 +1033,42 @@ export default function GameClient() {
     haptic(12);
   };
 
-  const ticketActionLabel = (ticket: Ticket) => {
+  const ticketActionLabel = (ticket: Ticket, ticketIndex: number) => {
+    const ticketDuoRuntime = currentDuoRuntimes[ticketIndex];
+    if (phase === "betting" && ticket.pumpkinContract.active && ticket.pumpkinContract.clears > 0) {
+      return `BET LOCKED · ${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages}`;
+    }
     if (phase === "betting") return ticket.placed
       ? "取消下注"
       : roundSpec ? "BET" : "PREPARING";
     if (phase === "crashed") {
+      if (ticket.status === "cashed" && ticket.pumpkinContract.active) return "STAGE CLEAR";
+      if (ticket.note.includes("完成：總倍率")) return `WIN ${money(ticket.payout)}`;
+      if (ticket.note.includes("連續挑戰失敗")) return "CHALLENGE LOST";
       if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
       return "NEXT ROUND";
     }
     if (!ticket.placed) return "NO BET";
+    if (ticket.status === "cashed" && ticket.pumpkinContract.active) return `STAGE ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages} CLEAR`;
     if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
+    if (["auto", "reveal-auto"].includes(ticketDuoRuntime?.rule.kind ?? "")) return `AUTO ${(ticketDuoRuntime?.autoTarget ?? ticketDuoRuntime?.threshold)?.toFixed(2)}×`;
     if (usesTomatoAuto(ticket)) return "AUTO 2–5×";
     if (ticket.status !== "running") return "SETTLED";
     return `CASH OUT · ${money(ticket.amount * multiplier)}`;
   };
 
-  const ticketActionDisabled = (ticket: Ticket) =>
+  const ticketActionDisabled = (ticket: Ticket, ticketIndex: number) =>
     (phase === "betting" && (!roundSpec || countdown <= 0)) ||
+    (phase === "betting" && ticket.pumpkinContract.active && ticket.pumpkinContract.clears > 0) ||
     phase === "crashed" ||
     (phase === "running" && ticket.status !== "running") ||
     (phase === "running" && multiplier < 1.01) ||
-    (phase === "running" && usesTomatoAuto(ticket));
+    (phase === "running" && (usesTomatoAuto(ticket) || ["auto", "reveal-auto"].includes(currentDuoRuntimes[ticketIndex]?.rule.kind ?? "")));
 
   return (
     <main className="game-shell">
       <section
-        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${duoActive ? "duo-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
+        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${duoFusionActive ? "duo-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
         aria-label="蔬菜跑跑 Crash Game Demo"
       >
         <section
@@ -994,27 +1185,31 @@ export default function GameClient() {
               {tickets.map((ticket, index) => {
                 if (!ticket.enabled || !ticket.placed) return null;
                 const recovered = ticket.status === "lost" && ticket.payout > 0;
-                const resultLabel = ticket.status === "cashed"
-                  ? ticket.linkAwarded ? "LINK CASH OUT" : "CASH OUT SUCCESS"
-                  : recovered ? ticket.roleId === "pumpkin" ? "STAKE REFUND" : "PEA ESCAPE 2×" : "CAUGHT";
+                const contractClear = ticket.status === "cashed" && ticket.pumpkinContract.active;
+                const contractComplete = ticket.note.includes("完成：總倍率");
+                const contractLost = ticket.note.includes("連續挑戰失敗");
+                const resultLabel = contractClear
+                  ? `STAGE ${ticket.pumpkinContract.clears} CLEAR`
+                  : contractComplete ? `${ticket.pumpkinContract.stages} STAGE WIN`
+                  : contractLost ? "CHALLENGE LOST"
+                  : ticket.status === "cashed"
+                  ? "CASH OUT SUCCESS"
+                  : recovered ? "RECOVERED" : "CAUGHT";
+                const resultValue = contractClear
+                  ? `LOCKED ${ticket.pumpkinContract.multipliers.reduce((sum, value) => sum + value, 0).toFixed(2)}×`
+                  : ticket.payout > 0 ? `WIN +${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`;
                 return (
                   <span className={recovered ? "result-cashed result-recovered" : `result-${ticket.status}`} key={index}>
                     <b>{index + 1}</b>
                     <i>{resultLabel}</i>
-                    <strong>{ticket.payout > 0 ? `WIN +${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`}</strong>
+                    <strong>{resultValue}</strong>
                   </span>
                 );
               })}
             </div>
           )}
           {phase === "running" && <div className="signal-indicator" aria-label="連線穩定"><span><i /><i /><i /></span><small>LOCAL</small></div>}
-          {phase === "betting" && (
-            <div className={`duo-preview stage-duo-preview ${duoActive ? "is-active" : ""}`} aria-label="目前雙注連攜">
-              <strong><span>🔗 {duoDescription.title}</span><b>{duoActive ? "連攜中" : "選角預覽"}</b></strong>
-              <small>{duoDescription.shortSummary}</small>
-            </div>
-          )}
-          {phase === "betting" && duoActive && (
+          {phase === "betting" && duoFusionActive && (
             <div className="duo-activation" role="status" aria-live="polite">
               <span>DUO LINK</span>
               <strong>連攜啟動！</strong>
@@ -1026,13 +1221,26 @@ export default function GameClient() {
         </section>
 
         <section className="bet-zone">
-          {duoActive && phase === "betting" && <div className="duo-bridge" aria-label={`${duoDescription.title}連攜中`}><i>🔗</i><strong>{duoDescription.title}</strong><span>連攜中</span></div>}
+          {duoFusionActive && phase === "betting" && <div className="duo-bridge" aria-label={`${duoDescription.title}融合中`}><i>🔗</i><strong>{duoDescription.title}</strong><span>融合中</span></div>}
           {tickets.map((ticket, ticketIndex) => {
             const role = roleById[ticket.roleId];
             const canEdit = canEditUnplacedTicket(ticket);
-            const tomatoAuto = usesTomatoAuto(ticket);
+            const duoForcesAuto = duoActive && ["auto", "reveal-auto"].includes(selectedDuoRule?.kind ?? "");
+            const tomatoAuto = usesTomatoAuto(ticket) || duoForcesAuto;
+            const duoContract = duoActive && selectedDuoRule?.kind === "contract";
+            const pumpkinChallenge = ticket.roleId === "pumpkin" || ticket.pumpkinContract.active || duoContract;
+            const challengeTargetEditable = !duoContract || selectedDuoRule?.targetMode === "selected";
+            const roleDetail = duoActive || duoPreviewActive
+              ? duoCardDetail(ticket, ticketIndex)
+              : ticket.roleId === "peapod"
+                ? phase === "betting" || !ticket.placed || ticket.peapodThreshold === null || ticket.peapodFactor === null
+                  ? "開跑揭曉2～5×門檻與倍獎"
+                  : `本局門檻 ${ticket.peapodThreshold?.toFixed(0)}×｜倍獎×${ticket.peapodFactor}`
+                : ticket.pumpkinContract.active
+                  ? `連續挑戰 ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages} · 目標 ${ticket.pumpkinContract.target.toFixed(2)}× · 完成×${ticket.pumpkinContract.factor}`
+                  : role.detail;
             return (
-              <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") || ticket.linkAwarded ? "skill-triggered" : ""} ${duoActive ? "has-duo" : ""}`} key={ticketIndex}>
+              <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") ? "skill-triggered" : ""} ${duoFusionActive ? "has-duo" : ""}`} key={ticketIndex}>
                 <div className="character-grid" aria-label={`下注 ${ticketIndex + 1} 選擇角色`}>
                   {roles.map((option) => (
                     <button
@@ -1052,21 +1260,21 @@ export default function GameClient() {
                   <div className="role-name-row">
                     <strong>{role.name}</strong>
                   </div>
-                  <p>{role.detail}</p>
+                  <p>{roleDetail}</p>
                 </div>
 
                 <div className="amount-stepper">
-                  <button disabled={!canEdit || ticket.amount <= 10} aria-label={`下注 ${ticketIndex + 1} 減少金額`} onClick={() => changeStake(ticketIndex, -50)}>−</button>
+                  <button disabled={stakeLocked || !canEdit || ticket.amount <= 10} aria-label={`下注 ${ticketIndex + 1} 減少金額`} onClick={() => changeStake(ticketIndex, -50)}>−</button>
                   <strong>{money(ticket.amount)}</strong>
-                  <button disabled={!canEdit || ticket.amount >= 5000} aria-label={`下注 ${ticketIndex + 1} 增加金額`} onClick={() => changeStake(ticketIndex, 50)}>＋</button>
+                  <button disabled={stakeLocked || !canEdit || ticket.amount >= 5000} aria-label={`下注 ${ticketIndex + 1} 增加金額`} onClick={() => changeStake(ticketIndex, 50)}>＋</button>
                 </div>
 
                 <button
                   className={`bet-action ${phase === "running" && ticket.status === "running" ? "cash-mode" : ""} ${phase === "betting" && ticket.placed ? "cancel-mode" : ""}`}
-                  disabled={ticketActionDisabled(ticket)}
+                  disabled={ticketActionDisabled(ticket, ticketIndex)}
                   onClick={() => ticketAction(ticketIndex)}
                 >
-                  {ticketActionLabel(ticket)}
+                  {ticketActionLabel(ticket, ticketIndex)}
                 </button>
 
                 <div className="card-options">
@@ -1074,14 +1282,15 @@ export default function GameClient() {
                     <span>AUTO</span>
                     <button
                       className={`toggle ${ticket.autoBet ? "on" : ""}`}
+                      disabled={ticket.pumpkinContract.active}
                       aria-pressed={ticket.autoBet}
                       aria-label={`下注 ${ticketIndex + 1} 自動下注`}
                       onClick={() => toggleAutoBet(ticketIndex)}
                     ><i /></button>
                   </div>
                   <div className="option-control auto-cash-control">
-                    <span>AUTO CASHOUT {tomatoAuto ? "2–5×" : ""}</span>
-                    {!tomatoAuto && (
+                    <span>{pumpkinChallenge ? "CHALLENGE TARGET" : `AUTO CASHOUT ${duoForcesAuto ? selectedAutoRange : tomatoAuto ? "2–5×" : ""}`}</span>
+                    {!tomatoAuto && (!pumpkinChallenge || challengeTargetEditable) && (
                       <div className="auto-cash-setting">
                         <button
                           disabled={!canEdit || ticket.autoCashTarget <= 1.01}
@@ -1092,7 +1301,7 @@ export default function GameClient() {
                           type="number"
                           inputMode="decimal"
                           min="1.01"
-                          max={MAX_SETTLEMENT_MULTIPLIER}
+                          max={pumpkinChallenge ? 2.88 : MAX_SETTLEMENT_MULTIPLIER}
                           step="0.01"
                           value={autoCashInputs[ticketIndex]}
                           disabled={!canEdit}
@@ -1104,16 +1313,16 @@ export default function GameClient() {
                         />
                         <b>×</b>
                         <button
-                          disabled={!canEdit || ticket.autoCashTarget >= MAX_SETTLEMENT_MULTIPLIER}
+                          disabled={!canEdit || ticket.autoCashTarget >= (pumpkinChallenge ? 2.88 : MAX_SETTLEMENT_MULTIPLIER)}
                           aria-label={`下注 ${ticketIndex + 1} 提高自動 Cash Out 倍率`}
                           onClick={() => changeAutoCashTarget(ticketIndex, ticket.autoCashTarget <= 1.01 ? 1.1 : ticket.autoCashTarget + .1)}
                         >＋</button>
                       </div>
                     )}
                     <button
-                      className={`toggle ${ticket.autoCash || tomatoAuto ? "on" : ""}`}
-                      disabled={!canEdit || tomatoAuto}
-                      aria-pressed={Boolean(ticket.autoCash || tomatoAuto)}
+                      className={`toggle ${ticket.autoCash || tomatoAuto || pumpkinChallenge ? "on" : ""}`}
+                      disabled={!canEdit || tomatoAuto || pumpkinChallenge}
+                      aria-pressed={Boolean(ticket.autoCash || tomatoAuto || pumpkinChallenge)}
                       aria-label={`下注 ${ticketIndex + 1} 自動 Cash Out`}
                       onClick={() => toggleAutoCash(ticketIndex)}
                     ><i /></button>
@@ -1156,8 +1365,8 @@ export default function GameClient() {
                 ))}
               </div>
               <div className="ability-sharing-note">
-                <strong>🔗 雙注連攜</strong>
-                <span>相同角色：提高角色能力機率。不同角色：完成畫面上的兩個條件，兩注獲利一起加成。</span>
+                <strong>🔗 雙角融合</strong>
+                <span>同時下兩注時，兩個角色融合成同一條能力；兩張卡會顯示相同條件，各注獨立判定派彩。</span>
               </div>
               <div className="menu-actions">
                 <button
@@ -1201,7 +1410,7 @@ export default function GameClient() {
               <code>{phase === "betting" ? "下注鎖定後計算" : `${duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
               <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + presentation unit</code>
-              <p>開局先承諾 Seed、爆點亂數與畫面亂數；下注鎖定後，再依目前玩法、角色組合與投注比例，將同一爆點亂數映射到對應 VI 曲線。開啟 Auto Cash Out 時，曲線依鎖定倍率校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動 Cash Out 不讀取輸入框倍率，改用防套利曲線，已測固定時機策略不會高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用同一結算爆點；Cash Out 後的角色跑動只呈現本局過程，不改變爆點、派彩或 RTP。</p>
+              <p>開局先承諾 Seed、爆點亂數與角色亂數；下注鎖定後，再依單角或雙角融合能力映射對應 VI 曲線。固定 Auto Cash Out 與連續挑戰依鎖定目標校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動策略使用不高於 {(TARGET_RTP * 100).toFixed(0)}% 的安全曲線。兩注共用同一結算爆點，各注獨立判定能力；Cash Out 後的追跑只屬演出，不改變爆點、派彩或 RTP。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>

@@ -212,14 +212,6 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .fair-link:active { transform:translateY(1px); background:rgba(29,90,44,.92); }
 
 .bet-zone { min-height:0; padding:clamp(5px,1.25dvh,12px) 9px clamp(5px,1.15dvh,11px); display:grid; grid-template-rows:repeat(2,minmax(0,1fr)); gap:clamp(5px,1.2dvh,11px); position:relative; overflow:hidden; background:linear-gradient(180deg,#dff3dc,#d7ecd4); }
-.duo-preview { padding:6px 9px; display:grid; align-content:center; gap:2px; border:1px solid #e1b64e; border-radius:13px; color:#754d16; background:linear-gradient(135deg,rgba(255,250,219,.96),rgba(255,229,153,.96)); box-shadow:0 3px 10px rgba(86,60,20,.2),inset 0 1px white; }
-.duo-preview strong { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; line-height:1.1; }
-.duo-preview strong span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.duo-preview strong b { flex:0 0 auto; padding:2px 6px; border-radius:8px; color:#fff; background:#b7832b; font-size:10px; letter-spacing:.04em; }
-.duo-preview small { overflow:hidden; font-size:11.5px; line-height:1.2; font-weight:850; text-wrap:balance; }
-.duo-preview.is-active { border-color:#75c66a; color:#315f38; background:linear-gradient(135deg,rgba(239,255,221,.97),rgba(206,245,176,.97)); box-shadow:0 0 0 2px rgba(114,213,91,.22),0 3px 10px rgba(44,102,42,.24),inset 0 1px white; }
-.duo-preview.is-active strong b { background:#4b9f4d; }
-.stage-duo-preview { position:absolute; z-index:15; left:50%; top:clamp(138px,24dvh,215px); width:min(350px,calc(100% - 132px)); min-height:50px; transform:translateX(-50%); }
 .duo-activation { position:absolute; z-index:45; left:50%; top:51%; width:min(326px,calc(100% - 54px)); padding:14px 18px 16px; display:grid; justify-items:center; gap:3px; overflow:hidden; transform:translate(-50%,-50%); color:#315b31; border:3px solid #fff0a0; border-radius:24px; background:radial-gradient(circle at 50% 0,#fffde0 0 30%,transparent 64%),linear-gradient(145deg,#e8ffc9,#9be176); box-shadow:0 0 0 5px rgba(100,201,83,.3),0 13px 34px rgba(33,91,38,.42),inset 0 1px white; text-align:center; pointer-events:none; animation:duoActivation 2.45s cubic-bezier(.15,.86,.25,1) both; }
 .duo-activation::before { content:""; position:absolute; inset:-38px; z-index:-1; border:14px solid rgba(255,229,71,.58); border-radius:50%; animation:duoActivationHalo 1.2s ease-out both; }
 .duo-activation>span { padding:3px 10px; color:#fff7b5; border-radius:10px; background:#2f9144; font-size:12px; font-weight:950; letter-spacing:.16em; }
@@ -472,9 +464,6 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
   .round-display strong { font-size:clamp(27px,6.7vw,34px); }
   .round-display>span { margin-top:2px; font-size:clamp(45px,11vw,58px); }
   .round-display small { margin-top:5px; padding-block:3px; }
-  .stage-duo-preview { min-height:46px; padding-block:4px; }
-  .duo-preview strong { font-size:12px; }
-  .duo-preview small { font-size:10.5px; }
   .bet-zone { padding-block:5px; gap:5px; }
   .bet-card { padding-block:5px 4px; grid-template-rows:minmax(45px,1fr) 31px 25px; gap-block:2px; }
   .role-info { padding-block:4px; }
@@ -494,7 +483,6 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
   .vertical-meters { top:59px; transform:scale(.82); transform-origin:top left; }
   .road-runner { width:96px; height:96px; bottom:clamp(56px,calc(56px + (var(--runner-progress) * .62px)),118px); }
   .fox-pursuer { width:145px; height:145px; }
-  .stage-duo-preview { top:122px; width:min(300px,calc(100% - 112px)); }
   .duo-activation { width:min(292px,calc(100% - 42px)); padding:10px 14px 12px; }
   .duo-activation>strong { font-size:26px; }
   .duo-activation>small { font-size:12px; }
