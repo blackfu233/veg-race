@@ -243,7 +243,10 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .role-name-row strong { min-width:0; overflow:hidden; color:#796044; font-size:17px; line-height:1; text-shadow:0 1px white; text-overflow:ellipsis; white-space:nowrap; }
 .role-name-row.is-duo { flex-wrap:nowrap; gap:3px; }
 .role-name-row.is-duo strong { font-size:clamp(12px,3.2vw,15px); }
-.role-ticket-label { flex:0 0 auto; padding:2px 4px; color:#fff9df; border-radius:7px; background:#4e9b50; font-size:8px; line-height:1; font-weight:900; white-space:nowrap; }
+.duo-role { color:#796044; font-weight:750; }
+.duo-role.is-current { color:var(--role-accent); font-weight:950; text-shadow:0 1px #fff,0 0 1px color-mix(in srgb,var(--role-accent),#3d2c1c 55%); }
+.duo-plus { color:#9a8060; font-weight:750; }
+.role-ticket-label { flex:0 0 auto; padding:2px 4px; color:#fff9df; border-radius:7px; background:color-mix(in srgb,var(--role-accent),#5b432b 48%); font-size:8px; line-height:1; font-weight:900; white-space:nowrap; }
 .role-info p { margin:5px 0 0; color:#8b5b43; font-size:11px; line-height:1.22; font-weight:780; text-wrap:balance; }
 .duo-inline-title { color:#3d8743; font-weight:950; }
 .amount-stepper { display:grid; grid-template-columns:39px 1fr 39px; gap:10px; align-items:stretch; }

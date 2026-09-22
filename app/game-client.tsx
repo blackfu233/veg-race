@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
+import { CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "./ticket-actions.mjs";
 import {
@@ -888,9 +888,7 @@ export default function GameClient() {
   const duoPreviewActive = phase === "betting" && !duoActive;
   const duoFusionActive = duoActive;
   const duoIdentityVisible = duoActive || duoPreviewActive;
-  const duoRoleName = selectedRoleIds[0] === selectedRoleIds[1]
-    ? `${roleById[selectedRoleIds[0]].name}×2`
-    : `${roleById[selectedRoleIds[0]].name}＋${roleById[selectedRoleIds[1]].name}`;
+  const duoSameRole = selectedRoleIds[0] === selectedRoleIds[1];
   const currentDuoRuntimes = tickets.map((_, ticketIndex) => duoActive && roundSpec
     ? runtimeForTicket(placedRoleIds, roundSpec, ticketIndex, showcaseMode)
     : null);
@@ -1262,7 +1260,11 @@ export default function GameClient() {
 
                 <div className="role-info" style={{ "--role-accent": role.accent } as CSSProperties}>
                   <div className={`role-name-row ${duoIdentityVisible ? "is-duo" : ""}`}>
-                    <strong>{duoIdentityVisible ? duoRoleName : role.name}</strong>
+                    <strong>{duoIdentityVisible
+                      ? duoSameRole
+                        ? <span className="duo-role is-current">{role.name}×2</span>
+                        : <>{selectedRoleIds.map((roleId, index) => <Fragment key={roleId}><span className={`duo-role ${index === ticketIndex ? "is-current" : "is-partner"}`}>{roleById[roleId].name}</span>{index === 0 && <span className="duo-plus">＋</span>}</Fragment>)}</>
+                      : role.name}</strong>
                     {duoIdentityVisible && <small className="role-ticket-label">{ticketIndex + 1} · {role.name}</small>}
                   </div>
                   <p>{duoIdentityVisible && <><b className="duo-inline-title">{duoDescription.title}</b>｜</>}{roleDetail}</p>

@@ -123,9 +123,11 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /stage-duo-preview|目前雙注效果/);
   assert.doesNotMatch(html, /目前雙注效果/);
   assert.equal((html.match(/5×後成功：50%機率派彩×2/g) ?? []).length, 2);
-  assert.equal((html.match(/馬鈴薯＋辣椒/g) ?? []).length, 2);
   assert.equal((html.match(/辣味升級/g) ?? []).length, 2);
   assert.match(source, /selectedRoleIds\[0\] === selectedRoleIds\[1\]/);
+  assert.match(source, /className="duo-role is-current"/);
+  assert.match(source, /index === ticketIndex \? "is-current" : "is-partner"/);
+  assert.match(source, /className="duo-plus">＋<\/span>/);
   assert.match(source, /role-ticket-label/);
   assert.doesNotMatch(source, /combo-copy|combo-badge/);
   assert.doesNotMatch(source, /同場串關|BET BOTH|兩關相乘/);
