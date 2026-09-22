@@ -31,27 +31,27 @@ const REWARD_PROFILES = Object.freeze({
 });
 
 export const DUO_RULES = Object.freeze({
-  "potato|potato": { title: "雙薯早收", kind: "chance", chance: .5, factor: 2, max: 2, summary: "2×前成功：50%機率派彩×2" },
-  "chili|chili": { title: "雙辣追高", kind: "chance", chance: .55, factor: 2, min: 5, summary: "5×後成功：55%機率派彩×2" },
-  "pumpkin|pumpkin": { title: "南瓜三連關", kind: "contract", stages: 3, factor: 5, targetMode: "selected", summary: "鎖定BET；連續3回合達標：總派彩×5" },
-  "tomato|tomato": { title: "雙茄收成", kind: "auto", chance: .2, factor: 3, autoMin: 2, autoMax: 5, summary: "兩注各抽2～5×自動Cash Out：20%機率派彩×3" },
-  "peapod|peapod": { title: "雙豆驚喜", kind: "reveal", chance: .35, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "開跑揭曉2～5×門檻與倍獎；達標後35%機率觸發" },
-  "mushroom|mushroom": { title: "雙菇頭獎", kind: "chance", chance: .08, factor: 8, summary: "成功Cash Out：8%機率派彩×8" },
-  "potato|chili": { title: "辣味升級", kind: "chance", chance: .5, factor: 2, min: 5, summary: "5×後成功：50%機率派彩×2" },
-  "potato|pumpkin": { title: "早收三連關", kind: "contract", stages: 3, factor: 4, targetMode: "selected", max: 2, summary: "鎖定BET；連續3回合在2×前成功：總派彩×4" },
-  "potato|tomato": { title: "快速收成", kind: "auto", chance: .2, factor: 3, autoMin: 1.5, autoMax: 3, summary: "兩注各抽1.5～3×自動Cash Out：20%機率派彩×3" },
-  "potato|peapod": { title: "早收驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4], prizeProfile: "pea", summary: "開跑揭曉2～4×門檻與倍獎；達標後25%機率觸發" },
-  "potato|mushroom": { title: "早收頭獎", kind: "chance", chance: .1, factor: 8, max: 2, summary: "2×前成功：10%機率派彩×8" },
-  "chili|pumpkin": { title: "極限二連關", kind: "contract", stages: 2, factor: 8, targetMode: "fixed", target: 5, summary: "鎖定BET；手動在5×後Cash Out，連過2回合：總派彩×8" },
-  "chili|tomato": { title: "高倍收成", kind: "auto", chance: .2, factor: 3, autoMin: 4, autoMax: 7, summary: "兩注各抽4～7×自動Cash Out：20%機率派彩×3" },
-  "chili|peapod": { title: "辣豆驚喜", kind: "reveal", chance: .35, thresholds: [3, 4, 5], prizeProfile: "pea", summary: "開跑揭曉3～5×門檻與倍獎；達標後35%機率觸發" },
-  "chili|mushroom": { title: "極限頭獎", kind: "chance", chance: .08, factor: 8, min: 5, summary: "5×後成功：8%機率派彩×8" },
-  "pumpkin|tomato": { title: "收成二連關", kind: "contract", stages: 2, factor: 5, targetMode: "auto", autoMin: 2, autoMax: 5, summary: "鎖定BET；兩注各抽2～5×自動收成，連過2回合：總派彩×5" },
-  "pumpkin|peapod": { title: "驚喜二連關", kind: "contract", stages: 2, targetMode: "reveal", thresholds: [2, 3, 4, 5], prizeProfile: "pumpkinPea", summary: "鎖定BET；連續2回合達到隨機門檻：總派彩×揭曉倍獎" },
-  "pumpkin|mushroom": { title: "頭獎三連關", kind: "contract", stages: 3, factor: 8, targetMode: "selected", summary: "鎖定BET；連續3回合成功Cash Out：總派彩×8" },
-  "tomato|peapod": { title: "驚喜自動收成", kind: "reveal-auto", chance: .25, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "兩注各抽2～5×門檻並自動Cash Out：25%機率觸發" },
-  "tomato|mushroom": { title: "頭獎自動收成", kind: "auto", chance: .08, factor: 8, autoMin: 2, autoMax: 5, summary: "兩注各抽2～5×自動Cash Out：8%機率派彩×8" },
-  "peapod|mushroom": { title: "豆菇大驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4, 5], prizeProfile: "peaMushroom", summary: "開跑揭曉2～5×門檻與×8／×10／×20倍獎；達標後25%機率觸發" },
+  "potato|potato": { title: "雙薯早收", kind: "chance", chance: .5, factor: 2, max: 2, summary: "2×前 Cash Out：50%機率派彩×2" },
+  "chili|chili": { title: "雙辣追高", kind: "chance", chance: .55, factor: 2, min: 5, summary: "5×後 Cash Out：55%機率派彩×2" },
+  "pumpkin|pumpkin": { title: "南瓜三連關", kind: "contract", stages: 3, factor: 5, targetMode: "selected", summary: "鎖定下注；連過3局：總派彩×5" },
+  "tomato|tomato": { title: "雙茄收成", kind: "auto", chance: .2, factor: 3, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：20%機率派彩×3" },
+  "peapod|peapod": { title: "雙豆驚喜", kind: "reveal", chance: .35, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "抽2–5×目標與倍獎；達標後35%機率觸發" },
+  "mushroom|mushroom": { title: "雙菇頭獎", kind: "chance", chance: .08, factor: 8, summary: "Cash Out：8%機率派彩×8" },
+  "potato|chili": { title: "辣味升級", kind: "chance", chance: .5, factor: 2, min: 5, summary: "5×後 Cash Out：50%機率派彩×2" },
+  "potato|pumpkin": { title: "早收三連關", kind: "contract", stages: 3, factor: 4, targetMode: "selected", max: 2, summary: "鎖定下注；2×前 Cash Out，連過3局：總派彩×4" },
+  "potato|tomato": { title: "快速收成", kind: "auto", chance: .2, factor: 3, autoMin: 1.5, autoMax: 3, summary: "各抽1.5–3×自動 Cash Out：20%機率派彩×3" },
+  "potato|peapod": { title: "早收驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4], prizeProfile: "pea", summary: "抽2–4×目標與倍獎；達標後25%機率觸發" },
+  "potato|mushroom": { title: "早收頭獎", kind: "chance", chance: .1, factor: 8, max: 2, summary: "2×前 Cash Out：10%機率派彩×8" },
+  "chili|pumpkin": { title: "極限二連關", kind: "contract", stages: 2, factor: 8, targetMode: "fixed", target: 5, summary: "鎖定下注；5×後 Cash Out，連過2局：總派彩×8" },
+  "chili|tomato": { title: "高倍收成", kind: "auto", chance: .2, factor: 3, autoMin: 4, autoMax: 7, summary: "各抽4–7×自動 Cash Out：20%機率派彩×3" },
+  "chili|peapod": { title: "辣豆驚喜", kind: "reveal", chance: .35, thresholds: [3, 4, 5], prizeProfile: "pea", summary: "抽3–5×目標與倍獎；達標後35%機率觸發" },
+  "chili|mushroom": { title: "極限頭獎", kind: "chance", chance: .08, factor: 8, min: 5, summary: "5×後 Cash Out：8%機率派彩×8" },
+  "pumpkin|tomato": { title: "收成二連關", kind: "contract", stages: 2, factor: 5, targetMode: "auto", autoMin: 2, autoMax: 5, summary: "鎖定下注；各抽2–5×自動 Cash Out，連過2局：總派彩×5" },
+  "pumpkin|peapod": { title: "驚喜二連關", kind: "contract", stages: 2, targetMode: "reveal", thresholds: [2, 3, 4, 5], prizeProfile: "pumpkinPea", summary: "鎖定下注；抽2–5×目標，連過2局：總派彩×揭曉倍獎" },
+  "pumpkin|mushroom": { title: "頭獎三連關", kind: "contract", stages: 3, factor: 8, targetMode: "selected", summary: "鎖定下注；連過3局：總派彩×8" },
+  "tomato|peapod": { title: "驚喜自動收成", kind: "reveal-auto", chance: .25, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "各抽2–5×自動 Cash Out：25%機率觸發倍獎" },
+  "tomato|mushroom": { title: "頭獎自動收成", kind: "auto", chance: .08, factor: 8, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：8%機率派彩×8" },
+  "peapod|mushroom": { title: "豆菇大驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4, 5], prizeProfile: "peaMushroom", summary: "抽2–5×目標與8–20倍獎；達標後25%機率觸發" },
 });
 
 function clampUnit(value) {
@@ -293,7 +293,7 @@ export function settleSuccessfulCashout(roleId, stake, multiplier, rolls, roundR
   }
   if (roleId === "tomato" && roleRoll(rolls, roleId) < ownTriggerChance(roleId, roundRoleIds)) {
     payout *= ROLE_MATH.tomato.payoutFactor;
-    notes.push("番茄：自動收成派彩×3");
+    notes.push("番茄：自動 Cash Out 派彩×3");
     triggeredRoleIds.push(roleId);
   }
   if (roleId === "mushroom" && roleRoll(rolls, roleId) < ownTriggerChance(roleId, roundRoleIds)) {

@@ -104,12 +104,12 @@ type RoundSpec = {
 const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, naturalEnd: 0, visualEnd: 0 };
 
 const roles: Role[] = [
-  { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：28%機率派彩×2", detail: "2×前成功 → 28%機率派彩×2", accent: "#f0b55b" },
-  { id: "chili", name: "辣椒", short: "5×後 Cash Out：34%機率派彩×2", detail: "5×後成功 → 34%機率派彩×2", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "鎖定BET與目標；連過3局，總倍率×3派彩", detail: "連續3局達標 → 總倍率×3派彩", accent: "#ff9d3d" },
-  { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：12%機率派彩×3", detail: "2–5×自動成功 → 12%機率派彩×3", accent: "#ff6358" },
-  { id: "peapod", name: "豌豆莢", short: "開跑揭曉2～5×門檻與倍獎；達標後25%機率觸發", detail: "開跑揭曉門檻與倍獎 → 達標後25%機率觸發", accent: "#70d858" },
-  { id: "mushroom", name: "蘑菇", short: "Cash Out成功：4.5%機率派彩×8", detail: "成功 → 4.5%機率派彩×8", accent: "#8a5abb" },
+  { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：28%機率派彩×2", detail: "2×前 Cash Out：28%機率派彩×2", accent: "#f0b55b" },
+  { id: "chili", name: "辣椒", short: "5×後 Cash Out：34%機率派彩×2", detail: "5×後 Cash Out：34%機率派彩×2", accent: "#ff5a4f" },
+  { id: "pumpkin", name: "南瓜", short: "鎖定下注；連過3局：總派彩×3", detail: "鎖定下注；連過3局：總派彩×3", accent: "#ff9d3d" },
+  { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：12%機率派彩×3", detail: "2–5×自動 Cash Out：12%機率派彩×3", accent: "#ff6358" },
+  { id: "peapod", name: "豌豆莢", short: "開跑抽2–5×目標與倍獎；達標後25%機率觸發", detail: "開跑抽2–5×目標與倍獎；達標後25%機率觸發", accent: "#70d858" },
+  { id: "mushroom", name: "蘑菇", short: "Cash Out：4.5%機率派彩×8", detail: "Cash Out：4.5%機率派彩×8", accent: "#8a5abb" },
 ];
 
 const forcedAbilityRolls: AbilityRolls = {
@@ -557,7 +557,7 @@ export default function GameClient() {
     const spec = roundSpecRef.current;
     const duoRuntime = roundRoleIds.length === 2 && spec ? runtimeForTicket(roundRoleIds, spec, index, showcaseModeRef.current) : null;
     if ((current.roleId === "tomato" || ["auto", "reveal-auto"].includes(duoRuntime?.rule.kind ?? "")) && !automatic) {
-      showToast("本局會自動 Cash Out", duoRuntime ? "融合能力已鎖定本局收成點" : "番茄將在 2.00×–5.00× 自動收成", "bad");
+      showToast("本局為自動 Cash Out", duoRuntime ? "融合能力已設定本局倍率" : "番茄將於2–5×自動 Cash Out", "bad");
       tone(210);
       return;
     }
@@ -565,7 +565,7 @@ export default function GameClient() {
     if (current.pumpkinContract.active) {
       const contract = current.pumpkinContract;
       if (!contract.active || at + 1e-9 < contract.target) {
-        showToast("連續挑戰尚未達標", `本關需到 ${contract.target.toFixed(2)}×`, "bad");
+        showToast("尚未達標", `需到${contract.target.toFixed(2)}×`, "bad");
         tone(210);
         return;
       }
@@ -574,8 +574,8 @@ export default function GameClient() {
       const cleared = challenge.complete ? contract.stages : challenge.contract.clears;
       const contractTitle = duoRuleFor(roundRoleIds)?.title ?? "南瓜三連關";
       const note = challenge.complete
-        ? `${contractTitle}完成：總倍率×${contract.factor}`
-        : `${contractTitle}第 ${cleared}/${contract.stages} 關成功：等待下一局`;
+        ? `${contractTitle}完成：總派彩×${contract.factor}`
+        : `${contractTitle}已通過${cleared}/${contract.stages}局`;
       const next = currentTickets.map((ticket, ticketIndex) => ticketIndex === index ? {
         ...ticket,
         payout: challenge.payout,
@@ -595,8 +595,8 @@ export default function GameClient() {
       activateSafeRun(next);
       triggerSkillFx(current.roleId, index, challenge.complete ? `${contractTitle} ×${contract.factor}！` : `${contractTitle} ${cleared}/${contract.stages}！`);
       showToast(
-        challenge.complete ? `${contractTitle}完成！` : `${contractTitle}第 ${cleared}/${contract.stages} 關成功`,
-        challenge.complete ? `派彩 +${money(challenge.payout)}` : `已記錄 ${at.toFixed(2)}× · BET繼續鎖定`,
+        challenge.complete ? `${contractTitle}完成！` : `已通過${cleared}/${contract.stages}局`,
+        challenge.complete ? `派彩 +${money(challenge.payout)}` : `已記錄${at.toFixed(2)}×｜下注保持鎖定`,
         "gold",
       );
       tone(challenge.complete ? 1080 : 820, challenge.complete ? .22 : .14, "triangle");
@@ -612,7 +612,7 @@ export default function GameClient() {
     });
     const paid = settlement.payout;
     const roleNote = current.roleId === "tomato" && !settlement.note
-      ? `番茄：在 ${at.toFixed(2)}× 自動收成`
+      ? `番茄：${at.toFixed(2)}×自動 Cash Out`
       : "";
     const note = [roleNote, settlement.note].filter(Boolean).join(" · ");
     const skillTone: "good" | "gold" = settlement.outcome === "bonus" ? "gold" : "good";
@@ -669,7 +669,7 @@ export default function GameClient() {
         payout: 0,
         remaining: 0,
         pumpkinContract: settlePumpkinCrash(ticket.pumpkinContract),
-        note: `連續挑戰失敗：爆點 ${crashPoint.toFixed(2)}×`,
+        note: `闖關失敗：爆點 ${crashPoint.toFixed(2)}×`,
       };
       const abilityRolls = showcaseModeRef.current
         ? forcedAbilityRolls
@@ -766,7 +766,7 @@ export default function GameClient() {
         autoRoleTarget: null,
         peapodThreshold: null,
         peapodFactor: null,
-        note: continuesContract ? `連續挑戰第 ${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages} 關待跑` : "",
+        note: continuesContract ? `闖關${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages}待跑` : "",
       };
     });
     ticketsRef.current = nextTickets;
@@ -904,13 +904,13 @@ export default function GameClient() {
   const duoCardDetail = (ticket: Ticket, ticketIndex: number) => {
     const runtime = currentDuoRuntimes[ticketIndex];
     if (ticket.pumpkinContract.active && (phase !== "betting" || ticket.pumpkinContract.clears > 0)) {
-      return `${duoDescription.summary}｜本注 ${ticket.pumpkinContract.target.toFixed(2)}×｜進度 ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages}`;
+      return `${duoDescription.summary}｜本注目標${ticket.pumpkinContract.target.toFixed(2)}×｜${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages}局`;
     }
     if (phase !== "betting" && runtime && ["reveal", "reveal-auto"].includes(runtime.rule.kind)) {
-      return `本注門檻 ${runtime.threshold}×｜倍獎×${runtime.factor}｜${Math.round((runtime.rule.chance ?? 0) * 100)}%機率觸發`;
+      return `本注目標${runtime.threshold}×｜${Math.round((runtime.rule.chance ?? 0) * 100)}%機率派彩×${runtime.factor}`;
     }
     if (phase !== "betting" && runtime?.rule.kind === "auto") {
-      return `本注 ${runtime.autoTarget?.toFixed(2)}× 自動Cash Out｜${Math.round((runtime.rule.chance ?? 0) * 100)}%機率派彩×${runtime.factor}`;
+      return `本注${runtime.autoTarget?.toFixed(2)}×自動 Cash Out｜${Math.round((runtime.rule.chance ?? 0) * 100)}%機率派彩×${runtime.factor}`;
     }
     return duoDescription.summary;
   };
@@ -1048,24 +1048,24 @@ export default function GameClient() {
   const ticketActionLabel = (ticket: Ticket, ticketIndex: number) => {
     const ticketDuoRuntime = currentDuoRuntimes[ticketIndex];
     if (phase === "betting" && ticket.pumpkinContract.active && ticket.pumpkinContract.clears > 0) {
-      return `BET LOCKED · ${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages}`;
+      return `下注鎖定 · ${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages}`;
     }
     if (phase === "betting") return ticket.placed
       ? "取消下注"
       : roundSpec ? "BET" : "PREPARING";
     if (phase === "crashed") {
-      if (ticket.status === "cashed" && ticket.pumpkinContract.active) return "STAGE CLEAR";
-      if (ticket.note.includes("完成：總倍率")) return `WIN ${money(ticket.payout)}`;
-      if (ticket.note.includes("連續挑戰失敗")) return "CHALLENGE LOST";
+      if (ticket.status === "cashed" && ticket.pumpkinContract.active) return "本局通過";
+      if (ticket.note.includes("完成：總派彩")) return `WIN ${money(ticket.payout)}`;
+      if (ticket.note.includes("闖關失敗")) return "闖關失敗";
       if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
-      return "NEXT ROUND";
+      return "下一局";
     }
-    if (!ticket.placed) return "NO BET";
-    if (ticket.status === "cashed" && ticket.pumpkinContract.active) return `STAGE ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages} CLEAR`;
+    if (!ticket.placed) return "未下注";
+    if (ticket.status === "cashed" && ticket.pumpkinContract.active) return `已通過 ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages}`;
     if (ticket.status === "cashed") return `WIN ${money(ticket.payout)}`;
     if (["auto", "reveal-auto"].includes(ticketDuoRuntime?.rule.kind ?? "")) return `AUTO ${(ticketDuoRuntime?.autoTarget ?? ticketDuoRuntime?.threshold)?.toFixed(2)}×`;
     if (usesTomatoAuto(ticket)) return "AUTO 2–5×";
-    if (ticket.status !== "running") return "SETTLED";
+    if (ticket.status !== "running") return "已結算";
     return `CASH OUT · ${money(ticket.amount * multiplier)}`;
   };
 
@@ -1198,15 +1198,15 @@ export default function GameClient() {
                 if (!ticket.enabled || !ticket.placed) return null;
                 const recovered = ticket.status === "lost" && ticket.payout > 0;
                 const contractClear = ticket.status === "cashed" && ticket.pumpkinContract.active;
-                const contractComplete = ticket.note.includes("完成：總倍率");
-                const contractLost = ticket.note.includes("連續挑戰失敗");
+                const contractComplete = ticket.note.includes("完成：總派彩");
+                const contractLost = ticket.note.includes("闖關失敗");
                 const resultLabel = contractClear
-                  ? `STAGE ${ticket.pumpkinContract.clears} CLEAR`
-                  : contractComplete ? `${ticket.pumpkinContract.stages} STAGE WIN`
-                  : contractLost ? "CHALLENGE LOST"
+                  ? `已通過${ticket.pumpkinContract.clears}局`
+                  : contractComplete ? "闖關完成"
+                  : contractLost ? "闖關失敗"
                   : ticket.status === "cashed"
-                  ? "CASH OUT SUCCESS"
-                  : recovered ? "RECOVERED" : "CAUGHT";
+                  ? "Cash Out 成功"
+                  : recovered ? "獲得補償" : "被捕";
                 const resultValue = contractClear
                   ? `LOCKED ${ticket.pumpkinContract.multipliers.reduce((sum, value) => sum + value, 0).toFixed(2)}×`
                   : ticket.payout > 0 ? `WIN +${money(ticket.payout)}` : `${multiplier.toFixed(2)}×`;
@@ -1248,10 +1248,10 @@ export default function GameClient() {
               ? duoCardDetail(ticket, ticketIndex)
               : ticket.roleId === "peapod"
                 ? phase === "betting" || !ticket.placed || ticket.peapodThreshold === null || ticket.peapodFactor === null
-                  ? "開跑揭曉2～5×門檻與倍獎"
-                  : `本局門檻 ${ticket.peapodThreshold?.toFixed(0)}×｜倍獎×${ticket.peapodFactor}`
+                  ? "開跑抽2–5×目標與倍獎"
+                  : `本局目標${ticket.peapodThreshold?.toFixed(0)}×｜派彩×${ticket.peapodFactor}`
                 : ticket.pumpkinContract.active
-                  ? `連續挑戰 ${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages} · 目標 ${ticket.pumpkinContract.target.toFixed(2)}× · 完成×${ticket.pumpkinContract.factor}`
+                  ? `進度${ticket.pumpkinContract.clears}/${ticket.pumpkinContract.stages}局｜目標${ticket.pumpkinContract.target.toFixed(2)}×｜總派彩×${ticket.pumpkinContract.factor}`
                   : role.detail;
             return (
               <article className={`bet-card status-${ticket.status} ${ticket.placed ? "is-placed" : ""} ${ticket.note.includes("：") ? "skill-triggered" : ""} ${duoFusionActive ? "has-duo" : ""}`} key={ticketIndex}>
@@ -1308,7 +1308,7 @@ export default function GameClient() {
                     ><i /></button>
                   </div>
                   <div className="option-control auto-cash-control">
-                    <span>{pumpkinChallenge ? "CHALLENGE TARGET" : `AUTO CASHOUT ${fixedManualContract ? `${selectedDuoRule.target}×+` : duoForcesAuto ? selectedAutoRange : tomatoAuto ? "2–5×" : ""}`}</span>
+                    <span>{pumpkinChallenge ? "闖關目標" : `AUTO CASH OUT ${fixedManualContract ? `${selectedDuoRule.target}×+` : duoForcesAuto ? selectedAutoRange : tomatoAuto ? "2–5×" : ""}`}</span>
                     {!tomatoAuto && (!pumpkinChallenge || challengeTargetEditable) && (
                       <div className="auto-cash-setting">
                         <button
@@ -1368,9 +1368,9 @@ export default function GameClient() {
               <div className="sheet-handle" />
               <header><div><small>GAME MENU</small><h2 id="rules-title">遊戲選單</h2></div><button aria-label="關閉遊戲選單" onClick={() => setRulesOpen(false)}>×</button></header>
               <div className="rule-steps">
-                <article><b>01</b><div><strong>30 秒選角下注</strong><span>下注後可按 RUN 提早開跑；開跑前每注都可單獨取消並退回籌碼。</span></div></article>
-                <article><b>02</b><div><strong>倍率持續成長</strong><span>角色越跑越遠，派彩由 1.00× 不斷上升。</span></div></article>
-                <article><b>03</b><div><strong>被抓前 Cash Out</strong><span>成功取得下注額 × 當下倍率；爆掉則失去未結算部位。</span></div></article>
+                <article><b>01</b><div><strong>30 秒下注</strong><span>下注後可按 RUN 開跑；開跑前可取消下注。</span></div></article>
+                <article><b>02</b><div><strong>倍率持續上升</strong><span>跑得越遠，倍率越高。</span></div></article>
+                <article><b>03</b><div><strong>被抓前 Cash Out</strong><span>按當下倍率派彩；被抓則失去未結算下注。</span></div></article>
               </div>
               <h3 className="role-guide-title">角色能力</h3>
               <div className="role-guide">
@@ -1383,7 +1383,7 @@ export default function GameClient() {
               </div>
               <div className="ability-sharing-note">
                 <strong>🔗 雙角融合</strong>
-                <span>同時下兩注時，兩個角色融合成同一條能力；兩張卡會顯示相同條件，各注獨立判定派彩。</span>
+                <span>同時下注兩注，兩張卡共用一個融合能力，各自派彩。</span>
               </div>
               <div className="menu-actions">
                 <button onClick={() => { setRulesOpen(false); setFairOpen(true); }}><span>公平性驗證</span><b>查看本局資料 ›</b></button>
@@ -1418,7 +1418,7 @@ export default function GameClient() {
               <code>{phase === "betting" ? "下注鎖定後計算" : `${duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
               <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + presentation unit</code>
-              <p>開局先承諾 Seed、爆點亂數與角色亂數；下注鎖定後，再依單角或雙角融合能力映射對應 VI 曲線。固定 Auto Cash Out 與連續挑戰依鎖定目標校準至 {(TARGET_RTP * 100).toFixed(0)}%；手動策略使用不高於 {(TARGET_RTP * 100).toFixed(0)}% 的安全曲線。兩注共用同一結算爆點，各注獨立判定能力；Cash Out 後的追跑只屬演出，不改變爆點、派彩或 RTP。</p>
+              <p>開局先承諾 Seed 與本局亂數；下注後依角色組合套用 VI 曲線。固定 Auto Cash Out 與闖關校準至 {(TARGET_RTP * 100).toFixed(0)}%，手動策略不高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用爆點、各自派彩；Cash Out 後追跑只是演出。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>

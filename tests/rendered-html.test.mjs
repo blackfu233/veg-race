@@ -121,7 +121,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   for (const removedRoleName of ["秋葵", "雙色玉米", "雙葉青蔥", "花生"]) {
     assert.doesNotMatch(html, new RegExp(removedRoleName));
   }
-  assert.match(html, /AUTO CASHOUT/);
+  assert.match(html, /AUTO CASH OUT/);
   assert.match(html, /type="text"/);
   assert.match(html, /inputMode="decimal"/);
   assert.match(html, />RUN<\/button>/);
@@ -131,8 +131,8 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙角融合/);
-  assert.match(source, /連續3局達標 → 總倍率×3派彩/);
-  assert.match(source, /開跑揭曉門檻與倍獎 → 達標後25%機率觸發/);
+  assert.match(source, /鎖定下注；連過3局：總派彩×3/);
+  assert.match(source, /開跑抽2–5×目標與倍獎；達標後25%機率觸發/);
   assert.match(source, /連攜啟動！/);
   assert.match(source, /className="duo-activation"/);
   assert.match(source, /className="duo-bridge"/);
@@ -142,7 +142,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /雙注預覽｜/);
   assert.doesNotMatch(source, /stage-duo-preview|目前雙注效果/);
   assert.doesNotMatch(html, /目前雙注效果/);
-  assert.equal((html.match(/5×後成功：50%機率派彩×2/g) ?? []).length, 2);
+  assert.equal((html.match(/5×後 Cash Out：50%機率派彩×2/g) ?? []).length, 2);
   assert.equal((html.match(/辣味升級/g) ?? []).length, 2);
   assert.match(source, /selectedRoleIds\[0\] === selectedRoleIds\[1\]/);
   assert.match(source, /className="duo-role is-current"/);
@@ -217,7 +217,7 @@ test("keeps the post-cashout chase visual-only, bounded, and unlabeled", async (
   assert.match(source, /roundEndPoint = safeRunRef\.current\.active \? safeRunRef\.current\.visualEnd : crashPoint/);
   assert.match(source, /setHistory\(\(current\) => \[crashPoint,/);
   assert.match(source, /settleCrash\(crashPoint\)/);
-  assert.match(source, /Cash Out 後的追跑只屬演出，不改變爆點、派彩或 RTP/);
+  assert.match(source, /Cash Out 後追跑只是演出/);
   assert.doesNotMatch(source, />NEAR MISS</);
   assert.doesNotMatch(source, /安全演出|安全領跑|自然 Near Miss/);
 });
@@ -308,11 +308,11 @@ test("draws independent auto targets for both tomato-link tickets", async () => 
 });
 
 test("keeps chili and pumpkin manual while allowing an optional configured auto cashout", async () => {
-  assert.match(DUO_RULES["chili|pumpkin"].summary, /手動在5×後Cash Out/);
+  assert.match(DUO_RULES["chili|pumpkin"].summary, /5×後 Cash Out，連過2局/);
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /ticket\.pumpkinContract\.ruleKey === "chili\|pumpkin"/);
   assert.match(source, /ticket\.autoCash \? Math\.max\(ticket\.pumpkinContract\.target, ticket\.autoCash\) : null/);
-  assert.match(source, /AUTO CASHOUT \$\{fixedManualContract/);
+  assert.match(source, /AUTO CASH OUT \$\{fixedManualContract/);
   assert.doesNotMatch(source, /特效展示模式已開啟|展示模式會覆寫角色機率/);
 });
 
@@ -346,7 +346,7 @@ test("keeps the chase meter cosmetic and emphasizes large results", async () => 
   for (const tier of ["cold", "warm", "hot", "mega", "epic", "legendary"]) {
     assert.match(styles, new RegExp(`\\.history-strip \\.${tier}`));
   }
-  assert.match(source, /CASH OUT SUCCESS/);
+  assert.match(source, /Cash Out 成功/);
   assert.match(styles, /@keyframes winResultPop/);
 });
 
@@ -500,7 +500,7 @@ test("defines a visible description for all 21 unordered role pairs", () => {
       const description = describeDuoPair([roleIds[first], roleIds[second]]);
       assert.ok(description.title.length > 2);
       assert.ok(description.shortSummary.length > 2);
-      assert.match(description.summary, /成功|Cash Out|達標|達到|收成/);
+      assert.match(description.summary, /Cash Out|達標|連過|派彩/);
       assert.equal(description.roleDetails.length, 2);
       assert.equal(description.roleDetails[0], description.roleDetails[1]);
       keys.add(description.key);
@@ -508,6 +508,14 @@ test("defines a visible description for all 21 unordered role pairs", () => {
   }
   assert.equal(keys.size, 21);
   assert.equal(Object.keys(DUO_RULES).length, 21);
+});
+
+test("keeps role and fusion copy short and consistent", async () => {
+  for (const rule of Object.values(DUO_RULES)) {
+    assert.doesNotMatch(rule.summary, /鎖定BET|自動Cash Out|門檻|回合|成功Cash Out|×前成功|×後成功|自動收成/);
+  }
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /成功 →|自動成功|總倍率×3派彩|開跑揭曉.*門檻/);
 });
 
 test("maps the committed crash unit through the selected VI curve", () => {
