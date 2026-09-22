@@ -887,6 +887,10 @@ export default function GameClient() {
   const duoActive = placedCount === 2;
   const duoPreviewActive = phase === "betting" && !duoActive;
   const duoFusionActive = duoActive;
+  const duoIdentityVisible = duoActive || duoPreviewActive;
+  const duoRoleName = selectedRoleIds[0] === selectedRoleIds[1]
+    ? `${roleById[selectedRoleIds[0]].name}×2`
+    : `${roleById[selectedRoleIds[0]].name}＋${roleById[selectedRoleIds[1]].name}`;
   const currentDuoRuntimes = tickets.map((_, ticketIndex) => duoActive && roundSpec
     ? runtimeForTicket(placedRoleIds, roundSpec, ticketIndex, showcaseMode)
     : null);
@@ -1257,10 +1261,11 @@ export default function GameClient() {
                 </div>
 
                 <div className="role-info" style={{ "--role-accent": role.accent } as CSSProperties}>
-                  <div className="role-name-row">
-                    <strong>{role.name}</strong>
+                  <div className={`role-name-row ${duoIdentityVisible ? "is-duo" : ""}`}>
+                    <strong>{duoIdentityVisible ? duoRoleName : role.name}</strong>
+                    {duoIdentityVisible && <small className="role-ticket-label">{ticketIndex + 1} · {role.name}</small>}
                   </div>
-                  <p>{roleDetail}</p>
+                  <p>{duoIdentityVisible && <><b className="duo-inline-title">{duoDescription.title}</b>｜</>}{roleDetail}</p>
                 </div>
 
                 <div className="amount-stepper">
