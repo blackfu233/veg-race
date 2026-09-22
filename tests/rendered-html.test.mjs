@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
-import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "../app/ticket-actions.mjs";
+import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket, canStartRoundEarly, isAutoCashInputDraft, normalizeAutoCashInput } from "../app/ticket-actions.mjs";
 import {
   calibratePumpkinContracts,
   calibrateRoundBaseRtp,
@@ -86,6 +86,22 @@ test("each pending bet can be cancelled separately before the deadline only", ()
   assert.equal(bettingWindowOpen("betting", true, 200, 200), false);
 });
 
+test("enables early RUN only while betting with at least one placed bet", () => {
+  assert.equal(canStartRoundEarly("betting", true, 1, 100, 200), true);
+  assert.equal(canStartRoundEarly("betting", true, 0, 100, 200), false);
+  assert.equal(canStartRoundEarly("running", true, 1, 100, 200), false);
+  assert.equal(canStartRoundEarly("betting", true, 1, 200, 200), false);
+});
+
+test("accepts mobile decimal drafts and normalizes auto cashout safely", () => {
+  for (const value of ["", "1.", "1,25", "99.00"]) assert.equal(isAutoCashInputDraft(value), true);
+  for (const value of ["-1", "1.234", "1..2", "abc"]) assert.equal(isAutoCashInputDraft(value), false);
+  assert.equal(normalizeAutoCashInput("1,25", 1.01, 99, 2), 1.25);
+  assert.equal(normalizeAutoCashInput("", 1.01, 99, 2), 2);
+  assert.equal(normalizeAutoCashInput("3", 5, 99, 5), 5);
+  assert.equal(normalizeAutoCashInput("120", 1.01, 99, 2), 99);
+});
+
 async function render() {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
@@ -106,7 +122,11 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
     assert.doesNotMatch(html, new RegExp(removedRoleName));
   }
   assert.match(html, /AUTO CASHOUT/);
-  assert.match(html, /type="number"/);
+  assert.match(html, /type="text"/);
+  assert.match(html, /inputMode="decimal"/);
+  assert.match(html, />RUN<\/button>/);
+  assert.match(html, />30<\/span>/);
+  assert.doesNotMatch(html, /特效展示模式|FX 100%/);
   assert.doesNotMatch(html, /class="road-runner\b/, "the road must stay empty before a bet is placed");
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
@@ -133,6 +153,8 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /同場串關|BET BOTH|兩關相乘/);
   assert.doesNotMatch(source, /雙注共享|本注限定/);
   assert.doesNotMatch(source, /主角＋支援|支援醬料|番茄醬|美乃滋|芥末醬|山葵醬|switchGameMode/);
+  assert.match(source, /\["localhost", "127\.0\.0\.1"\]\.includes\(window\.location\.hostname\)/);
+  assert.match(source, /get\("showcase"\) === "1"/);
 });
 
 test("locks the viewport and keeps touch controls zoom-free", async () => {
@@ -282,7 +304,22 @@ test("draws independent auto targets for both tomato-link tickets", async () => 
   assert.match(source, /runtimeForTicket\(placedRoleIds, spec, index/);
   assert.match(source, /runtimeForTicket\(roundRoleIds, spec, index/);
   assert.match(source, /usesTomatoAuto\(ticket\) \|\| duoForcesAuto/);
-  assert.match(source, /ticket\.roleId === "pumpkin" \|\| ticket\.pumpkinContract\.active \|\| duoContract/);
+  assert.match(source, /!fixedManualContract && \(ticket\.roleId === "pumpkin" \|\| ticket\.pumpkinContract\.active \|\| duoContract\)/);
+});
+
+test("keeps chili and pumpkin manual while allowing an optional configured auto cashout", async () => {
+  assert.match(DUO_RULES["chili|pumpkin"].summary, /手動在5×後Cash Out/);
+  const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
+  assert.match(source, /ticket\.pumpkinContract\.ruleKey === "chili\|pumpkin"/);
+  assert.match(source, /ticket\.autoCash \? Math\.max\(ticket\.pumpkinContract\.target, ticket\.autoCash\) : null/);
+  assert.match(source, /AUTO CASHOUT \$\{fixedManualContract/);
+  assert.doesNotMatch(source, /特效展示模式已開啟|展示模式會覆寫角色機率/);
+});
+
+test("removes the obsolete pumpkin refund label", async () => {
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(styles, /本金退回/);
+  assert.match(styles, /content:"闖關成功"/);
 });
 
 test("calibrates and locks two independently drawn pumpkin-tomato contract targets to 96%", async () => {

@@ -46,13 +46,14 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .menu-button { position:absolute; z-index:14; top:3px; right:11px; width:55px; height:55px; padding:13px; display:grid; align-content:center; gap:5px; border:4px solid #3d9048; border-radius:50%; background:linear-gradient(#79d07a,#61b967); box-shadow:0 3px 0 #347b40,0 5px 10px rgba(28,75,42,.2),inset 0 1px rgba(255,255,255,.38); transition:transform .12s,filter .12s; }
 .menu-button:active { transform:translateY(2px); box-shadow:0 1px 0 #347b40; }
 .menu-button i { height:3px; border-radius:3px; background:#effbe7; }
-.showcase-badge { position:absolute; z-index:14; top:63px; right:9px; min-width:57px; padding:4px 7px; color:#fff9c7; border:1px solid #ffe36b; border-radius:9px; background:linear-gradient(135deg,#ad3f99,#6b3caf); box-shadow:0 2px 8px rgba(74,28,92,.32),inset 0 1px rgba(255,255,255,.24); font-size:9px; font-weight:950; letter-spacing:.05em; text-align:center; animation:showcaseBadgePulse .85s ease-in-out infinite alternate; }
-
 .round-display { position:absolute; z-index:11; top:66px; left:105px; right:82px; display:grid; justify-items:center; color:#ff7d10; text-align:center; pointer-events:none; filter:drop-shadow(0 5px 9px rgba(96,52,12,.17)); }
 .round-display strong,.round-display>span { font-family:"Arial Rounded MT Bold","Trebuchet MS",system-ui,sans-serif; font-variant-numeric:tabular-nums; paint-order:stroke fill; }
 .round-display strong { font-size:clamp(31px,7.4vw,40px); line-height:1; letter-spacing:-1px; font-weight:900; -webkit-text-stroke:2.5px white; text-shadow:0 3px 0 #d95d08,0 5px 8px rgba(109,51,9,.2); }
 .round-display>span { margin-top:5px; font-size:clamp(56px,13.5vw,70px); line-height:.86; font-weight:900; letter-spacing:-2px; -webkit-text-stroke:3px white; text-shadow:0 4px 0 #d95d08,0 7px 10px rgba(109,51,9,.18); }
 .round-display small { margin-top:8px; padding:4px 9px; color:#594733; border:1px solid rgba(121,91,53,.13); background:rgba(255,255,255,.86); border-radius:12px; box-shadow:0 2px 7px rgba(73,50,25,.12); font-size:9px; font-weight:800; letter-spacing:.08em; filter:none; }
+.run-now-button { min-width:76px; margin-top:7px; padding:7px 18px 6px; pointer-events:auto; border:2px solid rgba(255,255,255,.92); border-radius:18px; color:#fff; background:linear-gradient(#79db63,#45a744); box-shadow:0 4px 0 #318c37,0 5px 11px rgba(42,103,39,.28); font-size:16px; line-height:1; font-weight:950; letter-spacing:.08em; text-shadow:0 1px #347d35; }
+.run-now-button:active:not(:disabled) { translate:0 2px; box-shadow:0 2px 0 #318c37,0 3px 7px rgba(42,103,39,.24); }
+.run-now-button:disabled { color:#f7f2e8; background:linear-gradient(#bdb7a9,#999385); box-shadow:0 3px 0 #777167; opacity:.72; }
 .phase-betting .round-display,.game-phone.no-bets .round-display { left:70px; right:70px; }
 .phase-betting .round-display span { animation:countdownBeat .9s ease-in-out infinite; }
 .phase-running .round-display { color:#08be2a; } .phase-running .round-display strong,.phase-running .round-display>span { text-shadow:0 3px 0 #078d26,0 6px 9px rgba(0,96,28,.2); } .phase-running .round-display span { animation:multiplierBeat .38s ease-out infinite alternate; }
@@ -102,7 +103,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 
 .fx-pumpkin .fx-role-main { animation:fxPumpkinHarvest .88s cubic-bezier(.16,.96,.25,1) both; }
 .fx-pumpkin .fx-shape::before { content:""; position:absolute; z-index:1; left:10px; top:0; width:92px; height:84px; border:4px dashed rgba(255,205,66,.92); border-radius:50%; box-shadow:inset 0 0 17px rgba(255,246,150,.48),0 0 19px rgba(255,145,29,.58); animation:fxHarvestRing .82s ease-out both; }
-.fx-pumpkin .fx-shape::after { content:"本金退回"; position:absolute; z-index:5; right:-5px; top:2px; padding:3px 6px; color:#fff7ae; border:2px solid #fff2a0; border-radius:9px; background:linear-gradient(#ef9c2c,#c8671c); box-shadow:0 3px 7px rgba(114,59,13,.28); font-size:12px; font-weight:950; text-shadow:0 1px #994314; animation:fxProfitStamp .76s .08s cubic-bezier(.16,1.1,.25,1) both; }
+.fx-pumpkin .fx-shape::after { content:"闖關成功"; position:absolute; z-index:5; right:-5px; top:2px; padding:3px 6px; color:#fff7ae; border:2px solid #fff2a0; border-radius:9px; background:linear-gradient(#ef9c2c,#c8671c); box-shadow:0 3px 7px rgba(114,59,13,.28); font-size:12px; font-weight:950; text-shadow:0 1px #994314; animation:fxProfitStamp .76s .08s cubic-bezier(.16,1.1,.25,1) both; }
 .fx-pumpkin .fx-particles i { display:block; left:51px; top:48px; width:13px; height:13px; border:2px solid #c77a1c; border-radius:50%; background:radial-gradient(circle at 34% 28%,#fff7ab,#ffd145 52%,#e98d21); box-shadow:0 0 8px #ffc442; animation:fxHarvestCoin .82s ease-out both; }
 .fx-pumpkin .fx-particles i:nth-child(1) { --coin-x:-43px; --coin-y:-27px; } .fx-pumpkin .fx-particles i:nth-child(2) { --coin-x:39px; --coin-y:-30px; }
 .fx-pumpkin .fx-particles i:nth-child(3) { --coin-x:-49px; --coin-y:8px; animation-delay:.06s; } .fx-pumpkin .fx-particles i:nth-child(4) { --coin-x:46px; --coin-y:10px; animation-delay:.09s; }
@@ -311,16 +312,6 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 .menu-actions { margin-top:13px; display:grid; gap:7px; }
 .menu-actions button { width:100%; min-height:43px; padding:9px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; border:1px solid #cddfbd; border-radius:12px; color:#5c4a36; background:#f1f8e9; font-weight:850; }
 .menu-actions button b { color:#4d9f4d; font-size:11px; }
-.menu-actions .showcase-control { min-height:55px; border-color:#dbc883; background:linear-gradient(180deg,#fff9dc,#f8efbf); text-align:left; }
-.menu-actions .showcase-control>span { display:grid; gap:2px; }
-.menu-actions .showcase-control strong { color:#67522f; font-size:13px; }
-.menu-actions .showcase-control small { color:#9b7b42; font-size:10px; font-weight:700; }
-.menu-actions .showcase-control>b { position:relative; width:48px; height:27px; flex:0 0 48px; border-radius:20px; background:#a58f70; box-shadow:inset 0 2px 4px rgba(73,52,27,.22); transition:background .18s; }
-.menu-actions .showcase-control>b i { position:absolute; top:3px; left:3px; width:21px; height:21px; border-radius:50%; background:#fff9ea; box-shadow:0 2px 4px rgba(59,41,18,.28); transition:transform .18s; }
-.menu-actions .showcase-control.on { border-color:#e778c8; background:linear-gradient(135deg,#fff1c6,#f9e1ff); box-shadow:inset 0 0 0 1px rgba(255,164,230,.26); }
-.menu-actions .showcase-control.on>b { background:linear-gradient(135deg,#e34ca6,#794bd1); }
-.menu-actions .showcase-control.on>b i { transform:translateX(21px); }
-.showcase-warning { margin:0; padding:7px 10px; color:#9c577a; border-radius:9px; background:#fff0f8; font-size:9px; font-weight:750; line-height:1.35; }
 .responsible-note { margin:11px 0 0; color:#9a846a; text-align:center; font-size:10px; }
 .sheet-secondary { width:100%; margin-top:12px; padding:11px; border:1px solid #d3b88f; border-radius:12px; color:#74583b; background:#f5ead8; font-weight:850; }
 .sheet-secondary:disabled { opacity:.52; }
@@ -367,7 +358,6 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 @keyframes winSparkle { 0% { opacity:0; transform:translateY(9px) rotate(-25deg) scale(.25); } 45% { opacity:1; transform:translateY(-3px) rotate(8deg) scale(1.2); } 100% { opacity:0; transform:translateY(-13px) rotate(24deg) scale(.7); } }
 @keyframes historyResult { 0% { transform:translateY(-9px) scale(.84); filter:brightness(1.45); } 60% { transform:translateY(1px) scale(1.08); } 100% { transform:none; filter:none; } }
 @keyframes legendaryGlow { from { filter:brightness(1); transform:translateY(0); } to { filter:brightness(1.12); transform:translateY(-1px); } }
-@keyframes showcaseBadgePulse { from { filter:brightness(1); transform:scale(1); } to { filter:brightness(1.16); transform:scale(1.04); } }
 @keyframes buttonShine { from { translate:0; } to { translate:420% 0; } }
 @keyframes cashReady { from { filter:saturate(1); } to { filter:saturate(1.15) brightness(1.035); } }
 @keyframes toastPop { from { opacity:0; transform:translate(-50%,calc(-100% + 10px)) scale(.92); } to { opacity:1; transform:translate(-50%,-100%) scale(1); } }
@@ -431,7 +421,7 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
 @keyframes duoActivationHalo { from { opacity:0; transform:scale(.25); } 38% { opacity:.9; } to { opacity:0; transform:scale(1.22); } }
 @keyframes duoBridgePulse { from { filter:brightness(.96); box-shadow:0 0 0 3px rgba(255,207,58,.24),0 4px 9px rgba(43,101,43,.25); } to { filter:brightness(1.1); box-shadow:0 0 0 5px rgba(255,207,58,.34),0 5px 13px rgba(43,101,43,.34); } }
 @media (prefers-reduced-motion:reduce) {
-  .phase-running .race-stage,.phase-running .road-flow i,.phase-running .speed-dust i,.phase-betting .road-runner,.phase-running .road-runner,.phase-running .road-runner::before,.phase-betting .round-display span,.phase-running .round-display span,.is-chase-close .race-stage::after,.is-chase-close .vertical-meters,.phase-crashed .round-display,.phase-crashed .history-strip span:first-child,.history-strip .legendary,.showcase-badge,.phase-running .road-runner.status-cashed,.phase-running .road-runner.status-cashed::before,.phase-running .fox-pursuer,.phase-running .fox-pursuer.fox-retired,.signal-indicator i,.bet-card.skill-triggered,.bet-action.cash-mode,.game-toast,.capture-overlay,.result-ribbon,.result-ribbon .result-cashed,.result-ribbon .result-cashed strong,.result-ribbon .result-cashed::before,.result-ribbon .result-cashed::after,.impact-ring,.impact-flash,.impact-smoke,.impact-smoke i,.impact-sparks i,.phase-crashed .road-runner.status-lost,.phase-crashed .fox-pursuer,.fox-pursuer::before,.skill-fx,.skill-fx *,.road-runner.skill-active .canvas-runner,.duo-activation,.duo-activation::before,.duo-bridge { animation:none; }
+  .phase-running .race-stage,.phase-running .road-flow i,.phase-running .speed-dust i,.phase-betting .road-runner,.phase-running .road-runner,.phase-running .road-runner::before,.phase-betting .round-display span,.phase-running .round-display span,.is-chase-close .race-stage::after,.is-chase-close .vertical-meters,.phase-crashed .round-display,.phase-crashed .history-strip span:first-child,.history-strip .legendary,.phase-running .road-runner.status-cashed,.phase-running .road-runner.status-cashed::before,.phase-running .fox-pursuer,.phase-running .fox-pursuer.fox-retired,.signal-indicator i,.bet-card.skill-triggered,.bet-action.cash-mode,.game-toast,.capture-overlay,.result-ribbon,.result-ribbon .result-cashed,.result-ribbon .result-cashed strong,.result-ribbon .result-cashed::before,.result-ribbon .result-cashed::after,.impact-ring,.impact-flash,.impact-smoke,.impact-smoke i,.impact-sparks i,.phase-crashed .road-runner.status-lost,.phase-crashed .fox-pursuer,.fox-pursuer::before,.skill-fx,.skill-fx *,.road-runner.skill-active .canvas-runner,.duo-activation,.duo-activation::before,.duo-bridge { animation:none; }
   .phase-running .road-runner.status-cashed,.phase-running .fox-pursuer.fox-retired { opacity:0; }
 }
 
@@ -488,7 +478,6 @@ button:focus-visible,input:focus-visible { outline:3px solid rgba(35,115,207,.72
   .history-strip span { height:29px; }
   .menu-button { width:47px; height:47px; padding:11px; }
   .round-display { top:45px; }
-  .showcase-badge { top:54px; }
   .vertical-meters { top:59px; transform:scale(.82); transform-origin:top left; }
   .road-runner { width:96px; height:96px; bottom:clamp(56px,calc(56px + (var(--runner-progress) * .62px)),118px); }
   .fox-pursuer { width:145px; height:145px; }

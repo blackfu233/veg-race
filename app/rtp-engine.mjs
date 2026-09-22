@@ -42,7 +42,7 @@ export const DUO_RULES = Object.freeze({
   "potato|tomato": { title: "快速收成", kind: "auto", chance: .2, factor: 3, autoMin: 1.5, autoMax: 3, summary: "兩注各抽1.5～3×自動Cash Out：20%機率派彩×3" },
   "potato|peapod": { title: "早收驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4], prizeProfile: "pea", summary: "開跑揭曉2～4×門檻與倍獎；達標後25%機率觸發" },
   "potato|mushroom": { title: "早收頭獎", kind: "chance", chance: .1, factor: 8, max: 2, summary: "2×前成功：10%機率派彩×8" },
-  "chili|pumpkin": { title: "極限二連關", kind: "contract", stages: 2, factor: 8, targetMode: "fixed", target: 5, summary: "鎖定BET；連續2回合在5×後成功：總派彩×8" },
+  "chili|pumpkin": { title: "極限二連關", kind: "contract", stages: 2, factor: 8, targetMode: "fixed", target: 5, summary: "鎖定BET；手動在5×後Cash Out，連過2回合：總派彩×8" },
   "chili|tomato": { title: "高倍收成", kind: "auto", chance: .2, factor: 3, autoMin: 4, autoMax: 7, summary: "兩注各抽4～7×自動Cash Out：20%機率派彩×3" },
   "chili|peapod": { title: "辣豆驚喜", kind: "reveal", chance: .35, thresholds: [3, 4, 5], prizeProfile: "pea", summary: "開跑揭曉3～5×門檻與倍獎；達標後35%機率觸發" },
   "chili|mushroom": { title: "極限頭獎", kind: "chance", chance: .08, factor: 8, min: 5, summary: "5×後成功：8%機率派彩×8" },

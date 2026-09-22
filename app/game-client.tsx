@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
-import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket } from "./ticket-actions.mjs";
+import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket, canStartRoundEarly, isAutoCashInputDraft, normalizeAutoCashInput } from "./ticket-actions.mjs";
 import {
   calibratePumpkinContracts,
   calibrateRoundBaseRtp,
@@ -22,6 +22,8 @@ import {
   settleSuccessfulCashout,
   TARGET_RTP,
 } from "./rtp-engine.mjs";
+
+const BETTING_SECONDS = 30;
 
 type Phase = "betting" | "running" | "crashed";
 type TicketStatus = "idle" | "placed" | "running" | "cashed" | "lost";
@@ -313,7 +315,7 @@ function SkillEffect({ effect, x }: { effect: SkillFx; x: number }) {
 
 export default function GameClient() {
   const [phase, setPhase] = useState<Phase>("betting");
-  const [countdown, setCountdown] = useState(8);
+  const [countdown, setCountdown] = useState(BETTING_SECONDS);
   const [multiplier, setMultiplier] = useState(1);
   const [balance, setBalance] = useState(10000);
   const [tickets, setTickets] = useState<Ticket[]>([blankTicket(0), blankTicket(1)]);
@@ -339,9 +341,10 @@ export default function GameClient() {
   const betDeadlineRef = useRef(0);
   const cancelledAutoBetRef = useRef(new Set<number>());
   const runStartRef = useRef(0);
+  const roundStartCommittedRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const countdownTickRef = useRef(8);
+  const countdownTickRef = useRef(BETTING_SECONDS);
   const skillFxIdRef = useRef(0);
   const skillFxTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
@@ -393,18 +396,14 @@ export default function GameClient() {
   }, [muted]);
 
   useEffect(() => {
-    let savedShowcaseMode = false;
-    try { savedShowcaseMode = localStorage.getItem("veggie-dash-showcase-mode") === "1"; } catch { /* Use normal odds when storage is unavailable. */ }
+    const localOnly = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    const enabled = localOnly && new URLSearchParams(window.location.search).get("showcase") === "1";
     const timer = setTimeout(() => {
-      showcaseModeRef.current = savedShowcaseMode;
-      setShowcaseMode(savedShowcaseMode);
+      showcaseModeRef.current = enabled;
+      setShowcaseMode(enabled);
     }, 0);
     return () => clearTimeout(timer);
   }, []);
-
-  useEffect(() => {
-    try { localStorage.setItem("veggie-dash-showcase-mode", showcaseMode ? "1" : "0"); } catch { /* The showcase switch still works for this session. */ }
-  }, [showcaseMode]);
 
   const showToast = useCallback((title: string, body: string, tone: "good" | "bad" | "gold" = "good") => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -450,19 +449,6 @@ export default function GameClient() {
   const haptic = useCallback((pattern: number | number[]) => {
     if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(pattern);
   }, []);
-
-  const toggleShowcaseMode = useCallback(() => {
-    const enabled = !showcaseModeRef.current;
-    showcaseModeRef.current = enabled;
-    setShowcaseMode(enabled);
-    showToast(
-      enabled ? "特效展示模式已開啟" : "已恢復正常機率",
-      enabled ? "條件達成時，角色能力必定觸發" : "角色能力依原始機率判定",
-      enabled ? "gold" : "good",
-    );
-    tone(enabled ? 920 : 540, .12);
-    haptic(enabled ? [18, 24, 18] : 14);
-  }, [haptic, showToast, tone]);
 
   useEffect(() => () => {
     if (audioContextRef.current) void audioContextRef.current.close().catch(() => undefined);
@@ -718,12 +704,48 @@ export default function GameClient() {
     setTickets(settled);
   }, [haptic, showToast, tone, triggerSkillFx]);
 
+  const startRace = useCallback(() => {
+    const currentSpec = roundSpecRef.current;
+    if (phaseRef.current !== "betting" || !currentSpec || roundStartCommittedRef.current) return false;
+    roundStartCommittedRef.current = true;
+    betDeadlineRef.current = 0;
+    const currentTickets = ticketsRef.current;
+    const regularBaseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets, currentSpec));
+    const activeContracts = currentTickets.flatMap((ticket) => ticket.enabled && ticket.placed && ticket.pumpkinContract.active ? [ticket.pumpkinContract] : []);
+    const baseRtp = activeContracts.length ? activeContracts[0].baseRtp : regularBaseRtp;
+    const resolvedSpec = {
+      ...currentSpec,
+      baseRtp,
+      crashPoint: crashPointFromUnit(currentSpec.crashUnit, baseRtp),
+    };
+    roundSpecRef.current = resolvedSpec;
+    setRoundSpec(resolvedSpec);
+    runStartRef.current = performance.now();
+    setMultiplier(1);
+    phaseRef.current = "running";
+    setPhase("running");
+    const nextTickets = currentTickets.map((ticket) => ticket.enabled && ticket.placed ? { ...ticket, status: "running" as const } : ticket);
+    ticketsRef.current = nextTickets;
+    setTickets(nextTickets);
+    setAutoCashInputs(nextTickets.map((ticket) => ticket.pumpkinContract.active
+      ? (ticket.pumpkinContract.ruleKey === "chili|pumpkin" ? Math.max(ticket.pumpkinContract.target, ticket.autoCashTarget) : ticket.pumpkinContract.target).toFixed(2)
+      : ticket.autoCashTarget.toFixed(2)));
+    tone(430, 0.16, "square");
+    return true;
+  }, [tone]);
+
+  const startRaceEarly = useCallback(() => {
+    if (!canStartRoundEarly(phaseRef.current, Boolean(roundSpecRef.current), ticketsRef.current.filter((ticket) => ticket.enabled && ticket.placed).length, performance.now(), betDeadlineRef.current)) return;
+    startRace();
+  }, [startRace]);
+
   const beginRound = useCallback(() => {
     cancelledAutoBetRef.current.clear();
     betDeadlineRef.current = 0;
-    countdownTickRef.current = 8;
+    roundStartCommittedRef.current = false;
+    countdownTickRef.current = BETTING_SECONDS;
     setMultiplier(1);
-    setCountdown(8);
+    setCountdown(BETTING_SECONDS);
     roundSpecRef.current = null;
     setRoundSpec(null);
     phaseRef.current = "betting";
@@ -773,7 +795,7 @@ export default function GameClient() {
 
   useEffect(() => {
     if (phase !== "betting" || !roundSpec) return;
-    betDeadlineRef.current = performance.now() + 8000;
+    betDeadlineRef.current = performance.now() + BETTING_SECONDS * 1000;
     const timer = setInterval(() => {
       setCountdown(Math.max(0, (betDeadlineRef.current - performance.now()) / 1000));
     }, 100);
@@ -791,31 +813,8 @@ export default function GameClient() {
 
   useEffect(() => {
     if (phase !== "betting" || countdown > 0 || !roundSpec) return;
-    const timer = setTimeout(() => {
-      const currentSpec = roundSpecRef.current;
-      if (!currentSpec) return;
-      const currentTickets = ticketsRef.current;
-      const regularBaseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets, currentSpec));
-      const activeContracts = currentTickets.flatMap((ticket) => ticket.enabled && ticket.placed && ticket.pumpkinContract.active ? [ticket.pumpkinContract] : []);
-      const baseRtp = activeContracts.length ? activeContracts[0].baseRtp : regularBaseRtp;
-      const resolvedSpec = {
-        ...currentSpec,
-        baseRtp,
-        crashPoint: crashPointFromUnit(currentSpec.crashUnit, baseRtp),
-      };
-      roundSpecRef.current = resolvedSpec;
-      setRoundSpec(resolvedSpec);
-      runStartRef.current = performance.now();
-      setMultiplier(1);
-      phaseRef.current = "running";
-      setPhase("running");
-      const nextTickets = ticketsRef.current.map((ticket) => ticket.enabled && ticket.placed ? { ...ticket, status: "running" as const } : ticket);
-      ticketsRef.current = nextTickets;
-      setTickets(nextTickets);
-      tone(430, 0.16, "square");
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [countdown, phase, roundSpec, tone]);
+    startRace();
+  }, [countdown, phase, roundSpec, startRace]);
 
   useEffect(() => {
     if (phase !== "betting") return;
@@ -841,7 +840,10 @@ export default function GameClient() {
         if (ticket.status !== "running") return;
         const spec = roundSpecRef.current;
         const runtime = placedRoleIds.length === 2 && spec ? runtimeForTicket(placedRoleIds, spec, index, showcaseModeRef.current) : null;
-        const target = ticket.pumpkinContract.active
+        const manualContract = ticket.pumpkinContract.active && ticket.pumpkinContract.ruleKey === "chili|pumpkin";
+        const target = manualContract
+          ? ticket.autoCash ? Math.max(ticket.pumpkinContract.target, ticket.autoCash) : null
+          : ticket.pumpkinContract.active
           ? ticket.pumpkinContract.target
           : runtime?.rule.kind === "auto" ? runtime.autoTarget
           : runtime?.rule.kind === "reveal-auto" ? runtime.threshold
@@ -888,6 +890,7 @@ export default function GameClient() {
   const duoPreviewActive = phase === "betting" && !duoActive;
   const duoFusionActive = duoActive;
   const duoIdentityVisible = duoActive || duoPreviewActive;
+  const fixedManualContract = (phase === "betting" || duoActive) && selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "fixed";
   const duoSameRole = selectedRoleIds[0] === selectedRoleIds[1];
   const currentDuoRuntimes = tickets.map((_, ticketIndex) => duoActive && roundSpec
     ? runtimeForTicket(placedRoleIds, roundSpec, ticketIndex, showcaseMode)
@@ -928,7 +931,7 @@ export default function GameClient() {
   })();
 
   const stageProgress = phase === "betting"
-    ? Math.max(4, ((8 - countdown) / 8) * 100)
+    ? Math.max(4, ((BETTING_SECONDS - countdown) / BETTING_SECONDS) * 100)
     : Math.min(96, 12 + Math.log(Math.max(1, multiplier)) * 34);
   // This is an intentionally non-predictive show meter. It only follows visible
   // run time and never reads the committed crash point.
@@ -953,11 +956,18 @@ export default function GameClient() {
   const chooseRole = (ticketIndex: number, roleId: RoleId) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket)) return;
-    updateTicket(ticketIndex, (current) => ({
+    const next = ticketsRef.current.map((current, index) => index === ticketIndex ? {
       ...current,
       roleId,
       autoCash: roleId === "tomato" ? null : current.autoCash,
-    }));
+    } : current);
+    const nextRule = duoRuleFor(next.map((current) => current.roleId));
+    const nextFixedTarget = nextRule?.kind === "contract" && nextRule.targetMode === "fixed" ? nextRule.target : null;
+    ticketsRef.current = next;
+    setTickets(next);
+    setAutoCashInputs(next.map((current) => nextFixedTarget
+      ? Math.max(nextFixedTarget, current.autoCashTarget).toFixed(2)
+      : current.autoCashTarget.toFixed(2)));
     tone(650);
   };
 
@@ -989,16 +999,20 @@ export default function GameClient() {
   const toggleAutoCash = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket) || usesTomatoAuto(ticket)) return;
-    updateTicket(ticketIndex, (current) => ({ ...current, autoCash: current.autoCash ? null : current.autoCashTarget }));
+    const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
+    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    const target = normalizeAutoCashInput(ticket.autoCashTarget, minTarget, maxTarget, minTarget);
+    updateTicket(ticketIndex, (current) => ({ ...current, autoCashTarget: target, autoCash: current.autoCash ? null : target }));
+    setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex ? target.toFixed(2) : value));
     tone(ticket.autoCash ? 410 : 590, .055, "triangle");
   };
 
   const changeAutoCashTarget = (ticketIndex: number, nextValue: number) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket)) return;
-    if (!Number.isFinite(nextValue)) return;
-    const maxTarget = ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
-    const target = Math.min(maxTarget, Math.max(1.01, Math.round(nextValue * 100) / 100));
+    const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
+    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    const target = normalizeAutoCashInput(nextValue, minTarget, maxTarget, ticket.autoCashTarget);
     updateTicket(ticketIndex, (current) => ({
       ...current,
       autoCashTarget: target,
@@ -1008,14 +1022,10 @@ export default function GameClient() {
   };
 
   const commitAutoCashInput = (ticketIndex: number) => {
-    const parsed = Number(autoCashInputs[ticketIndex].replace(",", "."));
-    if (Number.isFinite(parsed)) {
-      changeAutoCashTarget(ticketIndex, parsed);
-      return;
-    }
-    setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex
-      ? ticketsRef.current[ticketIndex].autoCashTarget.toFixed(2)
-      : value));
+    const ticket = ticketsRef.current[ticketIndex];
+    const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
+    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    changeAutoCashTarget(ticketIndex, normalizeAutoCashInput(autoCashInputs[ticketIndex], minTarget, maxTarget, ticket.autoCashTarget));
   };
 
   const ticketAction = (ticketIndex: number) => {
@@ -1070,7 +1080,7 @@ export default function GameClient() {
   return (
     <main className="game-shell">
       <section
-        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${showcaseMode ? "showcase-mode" : ""} ${duoFusionActive ? "duo-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
+        className={`game-phone phase-${phase} ${placedCount > 0 ? "has-bets" : "no-bets"} ${duoFusionActive ? "duo-active" : ""} ${safeRun.active ? "safe-run-active" : ""} ${safeRun.extended ? "near-miss-active" : ""} ${phase === "betting" && countdown <= 3 ? "is-countdown-urgent" : ""} ${phase === "running" && chasePressure >= 70 ? "is-chase-close" : ""}`}
         aria-label="蔬菜跑跑 Crash Game Demo"
       >
         <section
@@ -1085,7 +1095,6 @@ export default function GameClient() {
             <b>•••</b>
           </div>
           <button className="menu-button" aria-label="遊戲選單" onClick={() => setRulesOpen(true)}><i /><i /><i /></button>
-          {showcaseMode && <span className="showcase-badge" aria-label="特效展示模式已開啟">FX 100%</span>}
 
           <div className="scene-motion" aria-hidden="true">
             <span className="horizon-glow" />
@@ -1097,6 +1106,7 @@ export default function GameClient() {
             <strong>{phase === "betting" ? "Betting..." : phase === "running" ? "Run!" : caughtCount ? "Caught!" : "Round End"}</strong>
             <span>{phase === "betting" ? Math.ceil(countdown) : `${(phase === "crashed" && safeRun.active ? safeRun.naturalEnd : multiplier).toFixed(2)}×`}</span>
             <small>{phase === "betting" ? roundSpec ? `ROUND ${roundNo} · ${placedCount}/2 BETS` : "PREPARING FAIR ROUND" : stageMessage}</small>
+            {phase === "betting" && <button className="run-now-button" disabled={!roundSpec || placedCount < 1 || countdown <= 0} onClick={startRaceEarly}>RUN</button>}
           </div>
 
           {phase !== "betting" && (runningCount > 0 || caughtCount > 0) && (
@@ -1230,8 +1240,10 @@ export default function GameClient() {
             const duoForcesAuto = duoActive && ["auto", "reveal-auto"].includes(selectedDuoRule?.kind ?? "");
             const tomatoAuto = usesTomatoAuto(ticket) || duoForcesAuto;
             const duoContract = duoActive && selectedDuoRule?.kind === "contract";
-            const pumpkinChallenge = ticket.roleId === "pumpkin" || ticket.pumpkinContract.active || duoContract;
+            const pumpkinChallenge = !fixedManualContract && (ticket.roleId === "pumpkin" || ticket.pumpkinContract.active || duoContract);
             const challengeTargetEditable = !duoContract || selectedDuoRule?.targetMode === "selected";
+            const minAutoCash = fixedManualContract ? selectedDuoRule.target : 1.01;
+            const maxAutoCash = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
             const roleDetail = duoActive || duoPreviewActive
               ? duoCardDetail(ticket, ticketIndex)
               : ticket.roleId === "peapod"
@@ -1296,31 +1308,29 @@ export default function GameClient() {
                     ><i /></button>
                   </div>
                   <div className="option-control auto-cash-control">
-                    <span>{pumpkinChallenge ? "CHALLENGE TARGET" : `AUTO CASHOUT ${duoForcesAuto ? selectedAutoRange : tomatoAuto ? "2–5×" : ""}`}</span>
+                    <span>{pumpkinChallenge ? "CHALLENGE TARGET" : `AUTO CASHOUT ${fixedManualContract ? `${selectedDuoRule.target}×+` : duoForcesAuto ? selectedAutoRange : tomatoAuto ? "2–5×" : ""}`}</span>
                     {!tomatoAuto && (!pumpkinChallenge || challengeTargetEditable) && (
                       <div className="auto-cash-setting">
                         <button
-                          disabled={!canEdit || ticket.autoCashTarget <= 1.01}
+                          disabled={!canEdit || ticket.autoCashTarget <= minAutoCash}
                           aria-label={`下注 ${ticketIndex + 1} 降低自動 Cash Out 倍率`}
-                          onClick={() => changeAutoCashTarget(ticketIndex, ticket.autoCashTarget <= 1.1 ? 1.01 : ticket.autoCashTarget - .1)}
+                          onClick={() => changeAutoCashTarget(ticketIndex, ticket.autoCashTarget <= minAutoCash + .09 ? minAutoCash : ticket.autoCashTarget - .1)}
                         >−</button>
                         <input
-                          type="number"
+                          type="text"
                           inputMode="decimal"
-                          min="1.01"
-                          max={pumpkinChallenge ? 2.88 : MAX_SETTLEMENT_MULTIPLIER}
-                          step="0.01"
+                          pattern="[0-9]*[.,]?[0-9]{0,2}"
                           value={autoCashInputs[ticketIndex]}
                           disabled={!canEdit}
                           aria-label={`下注 ${ticketIndex + 1} 自動 Cash Out 倍率`}
-                          onChange={(event) => setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex ? event.target.value : value))}
+                          onChange={(event) => isAutoCashInputDraft(event.target.value) && setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex ? event.target.value : value))}
                           onBlur={() => commitAutoCashInput(ticketIndex)}
                           onFocus={(event) => event.currentTarget.select()}
                           onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
                         />
                         <b>×</b>
                         <button
-                          disabled={!canEdit || ticket.autoCashTarget >= (pumpkinChallenge ? 2.88 : MAX_SETTLEMENT_MULTIPLIER)}
+                          disabled={!canEdit || ticket.autoCashTarget >= maxAutoCash}
                           aria-label={`下注 ${ticketIndex + 1} 提高自動 Cash Out 倍率`}
                           onClick={() => changeAutoCashTarget(ticketIndex, ticket.autoCashTarget <= 1.01 ? 1.1 : ticket.autoCashTarget + .1)}
                         >＋</button>
@@ -1358,7 +1368,7 @@ export default function GameClient() {
               <div className="sheet-handle" />
               <header><div><small>GAME MENU</small><h2 id="rules-title">遊戲選單</h2></div><button aria-label="關閉遊戲選單" onClick={() => setRulesOpen(false)}>×</button></header>
               <div className="rule-steps">
-                <article><b>01</b><div><strong>8 秒選角下注</strong><span>未下注的面板隨時可調整；開跑前每注都可單獨取消並退回籌碼。</span></div></article>
+                <article><b>01</b><div><strong>30 秒選角下注</strong><span>下注後可按 RUN 提早開跑；開跑前每注都可單獨取消並退回籌碼。</span></div></article>
                 <article><b>02</b><div><strong>倍率持續成長</strong><span>角色越跑越遠，派彩由 1.00× 不斷上升。</span></div></article>
                 <article><b>03</b><div><strong>被抓前 Cash Out</strong><span>成功取得下注額 × 當下倍率；爆掉則失去未結算部位。</span></div></article>
               </div>
@@ -1376,15 +1386,6 @@ export default function GameClient() {
                 <span>同時下兩注時，兩個角色融合成同一條能力；兩張卡會顯示相同條件，各注獨立判定派彩。</span>
               </div>
               <div className="menu-actions">
-                <button
-                  className={`showcase-control ${showcaseMode ? "on" : ""}`}
-                  aria-pressed={showcaseMode}
-                  onClick={toggleShowcaseMode}
-                >
-                  <span><strong>特效展示模式</strong><small>條件達成時，角色能力必定觸發</small></span>
-                  <b aria-hidden="true"><i /></b>
-                </button>
-                {showcaseMode && <p className="showcase-warning">展示模式會覆寫角色機率，僅供查看特效，不代表正常 RTP。</p>}
                 <button onClick={() => { setRulesOpen(false); setFairOpen(true); }}><span>公平性驗證</span><b>查看本局資料 ›</b></button>
                 <button onClick={() => setMuted((value) => !value)}><span>遊戲音效</span><b>{muted ? "關閉" : "開啟"}</b></button>
               </div>
