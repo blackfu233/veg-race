@@ -131,8 +131,8 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙角融合/);
-  assert.match(source, /鎖定下注；連過3局：總派彩×3/);
-  assert.match(source, /開跑抽2–5×目標與倍獎；達標後25%機率觸發/);
+  assert.match(source, /鎖定下注；連過3局：總獎金×3/);
+  assert.match(source, /開跑抽2–5×目標與獎金倍數；達標後25%機率觸發/);
   assert.match(source, /連攜啟動！/);
   assert.match(source, /className="duo-activation"/);
   assert.match(source, /className="duo-bridge"/);
@@ -142,7 +142,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /雙注預覽｜/);
   assert.doesNotMatch(source, /stage-duo-preview|目前雙注效果/);
   assert.doesNotMatch(html, /目前雙注效果/);
-  assert.equal((html.match(/5×後 Cash Out：50%機率派彩×2/g) ?? []).length, 2);
+  assert.equal((html.match(/5×後 Cash Out：50%機率獎金×2/g) ?? []).length, 2);
   assert.equal((html.match(/辣味升級/g) ?? []).length, 2);
   assert.match(source, /selectedRoleIds\[0\] === selectedRoleIds\[1\]/);
   assert.match(source, /className="duo-role is-current"/);
@@ -500,7 +500,7 @@ test("defines a visible description for all 21 unordered role pairs", () => {
       const description = describeDuoPair([roleIds[first], roleIds[second]]);
       assert.ok(description.title.length > 2);
       assert.ok(description.shortSummary.length > 2);
-      assert.match(description.summary, /Cash Out|達標|連過|派彩/);
+      assert.match(description.summary, /Cash Out|達標|連過|獎金/);
       assert.equal(description.roleDetails.length, 2);
       assert.equal(description.roleDetails[0], description.roleDetails[1]);
       keys.add(description.key);
@@ -515,7 +515,7 @@ test("keeps role and fusion copy short and consistent", async () => {
     assert.doesNotMatch(rule.summary, /鎖定BET|自動Cash Out|門檻|回合|成功Cash Out|×前成功|×後成功|自動收成/);
   }
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /成功 →|自動成功|總倍率×3派彩|開跑揭曉.*門檻/);
+  assert.doesNotMatch(source, /派彩|倍獎|成功 →|自動成功|總倍率×3|開跑揭曉.*門檻/);
 });
 
 test("maps the committed crash unit through the selected VI curve", () => {
