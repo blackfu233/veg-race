@@ -1,14 +1,16 @@
 export const TARGET_RTP = 0.96;
+export const CORE_RTP = 0.92;
 export const MAX_SETTLEMENT_MULTIPLIER = 99;
+export const PUMPKIN_MAX_TARGET = 2.51;
 export const PEAPOD_THRESHOLDS = Object.freeze([2, 3, 4, 5]);
 
 export const ROLE_MATH = Object.freeze({
-  potato: { triggerChance: 0.28, resonanceChance: 0.5, payoutFactor: 2, maxMultiplier: 2 },
-  chili: { triggerChance: 0.34, resonanceChance: 0.55, payoutFactor: 2, minMultiplier: 5 },
-  pumpkin: { stages: 3, finalFactor: 3 },
-  tomato: { triggerChance: 0.12, resonanceChance: 0.2, payoutFactor: 3, minTarget: 2, maxTarget: 5 },
-  peapod: { triggerChance: 0.25, resonanceChance: 0.35, expectedPayoutFactor: 2.56 },
-  mushroom: { triggerChance: 0.045, resonanceChance: 0.08, payoutFactor: 8 },
+  potato: { triggerChance: 0.22, resonanceChance: 0.35, payoutFactor: 1.8, maxMultiplier: 2 },
+  chili: { triggerChance: 0.26, resonanceChance: 0.38, payoutFactor: 1.8, minMultiplier: 5 },
+  pumpkin: { stages: 3, finalFactor: 2.5 },
+  tomato: { triggerChance: 0.1, resonanceChance: 0.15, payoutFactor: 2.5, minTarget: 2, maxTarget: 5 },
+  peapod: { triggerChance: 0.2, resonanceChance: 0.28, expectedPayoutFactor: 2.245 },
+  mushroom: { triggerChance: 0.04, resonanceChance: 0.06, payoutFactor: 6 },
 });
 
 export const ROLE_NAMES = Object.freeze({
@@ -25,33 +27,33 @@ const ROLE_RANK = Object.freeze(Object.fromEntries(ROLE_ORDER.map((roleId, index
 const MANUAL_TARGET_BREAKPOINTS = Object.freeze([1.01, 1.49, 1.5, 1.99, 2, 2.99, 3, 3.99, 4, 4.99, 5, 6.99, 7, MAX_SETTLEMENT_MULTIPLIER]);
 
 const REWARD_PROFILES = Object.freeze({
-  pea: Object.freeze([{ factor: 2, weight: .75 }, { factor: 3, weight: .17 }, { factor: 5, weight: .06 }, { factor: 10, weight: .015 }, { factor: 20, weight: .005 }]),
-  peaMushroom: Object.freeze([{ factor: 8, weight: .7 }, { factor: 10, weight: .25 }, { factor: 20, weight: .05 }]),
-  pumpkinPea: Object.freeze([{ factor: 5, weight: .65 }, { factor: 8, weight: .25 }, { factor: 10, weight: .08 }, { factor: 20, weight: .02 }]),
+  pea: Object.freeze([{ factor: 1.5, weight: .45 }, { factor: 2, weight: .3 }, { factor: 3, weight: .17 }, { factor: 5, weight: .06 }, { factor: 8, weight: .02 }]),
+  peaMushroom: Object.freeze([{ factor: 5, weight: .7 }, { factor: 8, weight: .25 }, { factor: 12, weight: .05 }]),
+  pumpkinPea: Object.freeze([{ factor: 3, weight: .65 }, { factor: 5, weight: .25 }, { factor: 8, weight: .08 }, { factor: 12, weight: .02 }]),
 });
 
 export const DUO_RULES = Object.freeze({
-  "potato|potato": { title: "雙薯早收", kind: "chance", chance: .5, factor: 2, max: 2, summary: "2×前 Cash Out：50%機率獎金×2" },
-  "chili|chili": { title: "雙辣追高", kind: "chance", chance: .55, factor: 2, min: 5, summary: "5×後 Cash Out：55%機率獎金×2" },
-  "pumpkin|pumpkin": { title: "南瓜三連關", kind: "contract", stages: 3, factor: 5, targetMode: "selected", summary: "鎖定下注；連過3局：總獎金×5" },
-  "tomato|tomato": { title: "雙茄收成", kind: "auto", chance: .2, factor: 3, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：20%機率獎金×3" },
-  "peapod|peapod": { title: "雙豆驚喜", kind: "reveal", chance: .35, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "抽2–5×目標與獎金倍數；達標後35%機率觸發" },
-  "mushroom|mushroom": { title: "雙菇頭獎", kind: "chance", chance: .08, factor: 8, summary: "Cash Out：8%機率獎金×8" },
-  "potato|chili": { title: "辣味升級", kind: "chance", chance: .5, factor: 2, min: 5, summary: "5×後 Cash Out：50%機率獎金×2" },
-  "potato|pumpkin": { title: "早收三連關", kind: "contract", stages: 3, factor: 4, targetMode: "selected", max: 2, summary: "鎖定下注；2×前 Cash Out，連過3局：總獎金×4" },
-  "potato|tomato": { title: "快速收成", kind: "auto", chance: .2, factor: 3, autoMin: 1.5, autoMax: 3, summary: "各抽1.5–3×自動 Cash Out：20%機率獎金×3" },
-  "potato|peapod": { title: "早收驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4], prizeProfile: "pea", summary: "抽2–4×目標與獎金倍數；達標後25%機率觸發" },
-  "potato|mushroom": { title: "早收頭獎", kind: "chance", chance: .1, factor: 8, max: 2, summary: "2×前 Cash Out：10%機率獎金×8" },
-  "chili|pumpkin": { title: "極限二連關", kind: "contract", stages: 2, factor: 8, targetMode: "fixed", target: 5, summary: "鎖定下注；5×後 Cash Out，連過2局：總獎金×8" },
-  "chili|tomato": { title: "高倍收成", kind: "auto", chance: .2, factor: 3, autoMin: 4, autoMax: 7, summary: "各抽4–7×自動 Cash Out：20%機率獎金×3" },
-  "chili|peapod": { title: "辣豆驚喜", kind: "reveal", chance: .35, thresholds: [3, 4, 5], prizeProfile: "pea", summary: "抽3–5×目標與獎金倍數；達標後35%機率觸發" },
-  "chili|mushroom": { title: "極限頭獎", kind: "chance", chance: .08, factor: 8, min: 5, summary: "5×後 Cash Out：8%機率獎金×8" },
-  "pumpkin|tomato": { title: "收成二連關", kind: "contract", stages: 2, factor: 5, targetMode: "auto", autoMin: 2, autoMax: 5, summary: "鎖定下注；各抽2–5×自動 Cash Out，連過2局：總獎金×5" },
+  "potato|potato": { title: "雙薯早收", kind: "chance", chance: .35, factor: 1.8, max: 2, summary: "2×前 Cash Out：35%機率獎金×1.8" },
+  "chili|chili": { title: "雙辣追高", kind: "chance", chance: .38, factor: 1.8, min: 5, summary: "5×後 Cash Out：38%機率獎金×1.8" },
+  "pumpkin|pumpkin": { title: "南瓜三連關", kind: "contract", stages: 3, factor: 4, targetMode: "selected", summary: "鎖定下注；連過3局：總獎金×4" },
+  "tomato|tomato": { title: "雙茄收成", kind: "auto", chance: .15, factor: 2.5, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：15%機率獎金×2.5" },
+  "peapod|peapod": { title: "雙豆驚喜", kind: "reveal", chance: .28, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "抽2–5×目標與獎金倍數；達標後28%機率觸發" },
+  "mushroom|mushroom": { title: "雙菇頭獎", kind: "chance", chance: .06, factor: 6, summary: "Cash Out：6%機率獎金×6" },
+  "potato|chili": { title: "辣味升級", kind: "chance", chance: .35, factor: 1.8, min: 5, summary: "5×後 Cash Out：35%機率獎金×1.8" },
+  "potato|pumpkin": { title: "早收三連關", kind: "contract", stages: 3, factor: 3.5, targetMode: "selected", max: 2, summary: "鎖定下注；2×前 Cash Out，連過3局：總獎金×3.5" },
+  "potato|tomato": { title: "快速收成", kind: "auto", chance: .15, factor: 2.5, autoMin: 1.5, autoMax: 3, summary: "各抽1.5–3×自動 Cash Out：15%機率獎金×2.5" },
+  "potato|peapod": { title: "早收驚喜", kind: "reveal", chance: .22, thresholds: [2, 3, 4], prizeProfile: "pea", summary: "抽2–4×目標與獎金倍數；達標後22%機率觸發" },
+  "potato|mushroom": { title: "早收頭獎", kind: "chance", chance: .07, factor: 6, max: 2, summary: "2×前 Cash Out：7%機率獎金×6" },
+  "chili|pumpkin": { title: "極限二連關", kind: "contract", stages: 2, factor: 6, targetMode: "fixed", target: 5, summary: "鎖定下注；5×後 Cash Out，連過2局：總獎金×6" },
+  "chili|tomato": { title: "高倍收成", kind: "auto", chance: .15, factor: 2.5, autoMin: 4, autoMax: 7, summary: "各抽4–7×自動 Cash Out：15%機率獎金×2.5" },
+  "chili|peapod": { title: "辣豆驚喜", kind: "reveal", chance: .25, thresholds: [3, 4, 5], prizeProfile: "pea", summary: "抽3–5×目標與獎金倍數；達標後25%機率觸發" },
+  "chili|mushroom": { title: "極限頭獎", kind: "chance", chance: .06, factor: 6, min: 5, summary: "5×後 Cash Out：6%機率獎金×6" },
+  "pumpkin|tomato": { title: "收成二連關", kind: "contract", stages: 2, factor: 4, targetMode: "auto", autoMin: 2, autoMax: 5, summary: "鎖定下注；各抽2–5×自動 Cash Out，連過2局：總獎金×4" },
   "pumpkin|peapod": { title: "驚喜二連關", kind: "contract", stages: 2, targetMode: "reveal", thresholds: [2, 3, 4, 5], prizeProfile: "pumpkinPea", summary: "鎖定下注；抽2–5×目標，連過2局：總獎金×隨機倍數" },
-  "pumpkin|mushroom": { title: "頭獎三連關", kind: "contract", stages: 3, factor: 8, targetMode: "selected", summary: "鎖定下注；連過3局：總獎金×8" },
-  "tomato|peapod": { title: "驚喜自動收成", kind: "reveal-auto", chance: .25, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "各抽2–5×自動 Cash Out：25%機率獎金×隨機倍數" },
-  "tomato|mushroom": { title: "頭獎自動收成", kind: "auto", chance: .08, factor: 8, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：8%機率獎金×8" },
-  "peapod|mushroom": { title: "豆菇大驚喜", kind: "reveal", chance: .25, thresholds: [2, 3, 4, 5], prizeProfile: "peaMushroom", summary: "抽2–5×目標；達標後25%機率獎金×8／×10／×20" },
+  "pumpkin|mushroom": { title: "頭獎三連關", kind: "contract", stages: 3, factor: 6, targetMode: "selected", summary: "鎖定下注；連過3局：總獎金×6" },
+  "tomato|peapod": { title: "驚喜自動收成", kind: "reveal-auto", chance: .22, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "各抽2–5×自動 Cash Out：22%機率獎金×隨機倍數" },
+  "tomato|mushroom": { title: "頭獎自動收成", kind: "auto", chance: .06, factor: 6, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：6%機率獎金×6" },
+  "peapod|mushroom": { title: "豆菇大驚喜", kind: "reveal", chance: .16, thresholds: [2, 3, 4, 5], prizeProfile: "peaMushroom", summary: "抽2–5×目標；達標後16%機率獎金×5／×8／×12" },
 });
 
 function clampUnit(value) {
@@ -142,12 +144,12 @@ export function describeDuoPair(roleIds) {
   return { key, title: rule.title, badge: "融合能力", shortSummary: rule.summary, summary: rule.summary, roleDetails: [rule.summary, rule.summary] };
 }
 
-export function crashPointFromUnit(unit, baseRtp = TARGET_RTP) {
-  const rawPoint = Math.min(100, Math.max(1, Math.min(TARGET_RTP, Math.max(Number.EPSILON, baseRtp)) / Math.max(Number.EPSILON, 1 - clampUnit(unit))));
+export function crashPointFromUnit(unit, baseRtp = CORE_RTP) {
+  const rawPoint = Math.min(100, Math.max(1, Math.min(CORE_RTP, Math.max(Number.EPSILON, baseRtp)) / Math.max(Number.EPSILON, 1 - clampUnit(unit))));
   return Math.floor(rawPoint * 100 + 1e-9) / 100;
 }
 
-export function survivalAt(multiplier, baseRtp = TARGET_RTP) {
+export function survivalAt(multiplier, baseRtp = CORE_RTP) {
   if (!Number.isFinite(multiplier) || multiplier < 1 || multiplier >= 100) return 0;
   return Math.min(1, Math.max(0, baseRtp) / multiplier);
 }
@@ -178,6 +180,8 @@ export function createPumpkinContract(stake, target, options = {}) {
     stages: Math.max(1, Math.round(options.stages ?? ROLE_MATH.pumpkin.stages)),
     factor: Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor),
     ruleKey: options.ruleKey ?? "pumpkin",
+    poolAssisted: false,
+    poolReserved: 0,
   };
   return { ...contract, baseRtp: pumpkinContractBaseRtp(contract.target, contract) };
 }
@@ -207,7 +211,7 @@ export function settlePumpkinCrash(contract) {
 export function pumpkinContractBaseRtp(target, options = {}) {
   const stages = Math.max(1, Math.round(options.stages ?? ROLE_MATH.pumpkin.stages));
   const factor = Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor);
-  return Math.min(TARGET_RTP, (TARGET_RTP * safeTarget(target) ** (stages - 1) / (stages * factor)) ** (1 / stages));
+  return Math.min(CORE_RTP, (CORE_RTP * safeTarget(target) ** (stages - 1) / (stages * factor)) ** (1 / stages));
 }
 
 export function expectedPumpkinContractReturn(stake, target, baseRtp, options = {}) {
@@ -220,7 +224,7 @@ export function expectedPumpkinContractReturn(stake, target, baseRtp, options = 
 export function calibratePumpkinContracts(contracts) {
   const active = contracts.filter((contract) => contract?.active && contract.stake > 0);
   if (!active.length) return TARGET_RTP;
-  const targetReturn = TARGET_RTP * active.reduce((sum, contract) => sum + contract.stake, 0);
+  const targetReturn = CORE_RTP * active.reduce((sum, contract) => sum + contract.stake, 0);
   const sharedStages = Math.max(1, Math.round(active[0].stages ?? ROLE_MATH.pumpkin.stages));
   if (active.every((contract) => Math.max(1, Math.round(contract.stages ?? ROLE_MATH.pumpkin.stages)) === sharedStages)) {
     const coefficient = active.reduce((sum, contract) => {
@@ -236,9 +240,9 @@ export function calibratePumpkinContracts(contracts) {
     baseRtp,
     { stages: contract.stages, factor: contract.factor },
   ), 0);
-  if (expectedReturn(TARGET_RTP) <= targetReturn) return TARGET_RTP;
+  if (expectedReturn(CORE_RTP) <= targetReturn) return CORE_RTP;
   let low = Number.EPSILON;
-  let high = TARGET_RTP;
+  let high = CORE_RTP;
   for (let step = 0; step < 80; step += 1) {
     const midpoint = (low + high) / 2;
     if (expectedReturn(midpoint) < targetReturn) low = midpoint;
@@ -283,22 +287,22 @@ export function settleSuccessfulCashout(roleId, stake, multiplier, rolls, roundR
   let payout = safeStake * safeMultiplier;
   if (roleId === "potato" && safeMultiplier < ROLE_MATH.potato.maxMultiplier && roleRoll(rolls, roleId) < ownTriggerChance(roleId, roundRoleIds)) {
     payout *= ROLE_MATH.potato.payoutFactor;
-    notes.push("馬鈴薯：早收獎金×2");
+    notes.push(`馬鈴薯：早收獎金×${ROLE_MATH.potato.payoutFactor}`);
     triggeredRoleIds.push(roleId);
   }
   if (roleId === "chili" && safeMultiplier >= ROLE_MATH.chili.minMultiplier && roleRoll(rolls, roleId) < ownTriggerChance(roleId, roundRoleIds)) {
     payout *= ROLE_MATH.chili.payoutFactor;
-    notes.push("辣椒：追高獎金×2");
+    notes.push(`辣椒：追高獎金×${ROLE_MATH.chili.payoutFactor}`);
     triggeredRoleIds.push(roleId);
   }
   if (roleId === "tomato" && roleRoll(rolls, roleId) < ownTriggerChance(roleId, roundRoleIds)) {
     payout *= ROLE_MATH.tomato.payoutFactor;
-    notes.push("番茄：自動 Cash Out 獎金×3");
+    notes.push(`番茄：自動 Cash Out 獎金×${ROLE_MATH.tomato.payoutFactor}`);
     triggeredRoleIds.push(roleId);
   }
   if (roleId === "mushroom" && roleRoll(rolls, roleId) < ownTriggerChance(roleId, roundRoleIds)) {
     payout *= ROLE_MATH.mushroom.payoutFactor;
-    notes.push("蘑菇：JACKPOT獎金×8");
+    notes.push(`蘑菇：JACKPOT獎金×${ROLE_MATH.mushroom.payoutFactor}`);
     triggeredRoleIds.push(roleId);
   }
   const peapodThreshold = safeTarget(options.peapodThreshold ?? peapodThresholdFromUnit(rolls?.peapodTarget));
@@ -375,18 +379,18 @@ function roundReturnParts(wagers) {
 function calibrationBaseRtp(wagers) {
   const active = normalizeWagers(wagers);
   const totalStake = active.reduce((sum, wager) => sum + wager.stake, 0);
-  if (totalStake <= 0) return TARGET_RTP;
+  if (totalStake <= 0) return CORE_RTP;
   const fixedTargets = active.filter((wager) => !wager.manual).map((wager) => wager.target);
   const targetSets = active.map((wager) => wager.manual ? manualTargetCandidates(fixedTargets) : [wager.target]);
-  let safeBaseRtp = TARGET_RTP;
+  let safeBaseRtp = CORE_RTP;
   for (const firstTarget of targetSets[0] ?? []) {
     for (const secondTarget of targetSets[1] ?? [null]) {
       const candidates = active.map((wager, index) => ({ ...wager, target: index === 0 ? firstTarget : secondTarget }));
       const { constantReturn, baseCoefficient } = roundReturnParts(candidates);
-      if (baseCoefficient > 0) safeBaseRtp = Math.min(safeBaseRtp, (TARGET_RTP * totalStake - constantReturn) / baseCoefficient);
+      if (baseCoefficient > 0) safeBaseRtp = Math.min(safeBaseRtp, (CORE_RTP * totalStake - constantReturn) / baseCoefficient);
     }
   }
-  return Math.min(TARGET_RTP, Math.max(Number.EPSILON, safeBaseRtp));
+  return Math.min(CORE_RTP, Math.max(Number.EPSILON, safeBaseRtp));
 }
 
 export function expectedRoundReturn(wagers, baseRtp) {

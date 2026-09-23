@@ -1,11 +1,13 @@
 export const TARGET_RTP: number;
+export const CORE_RTP: number;
 export const MAX_SETTLEMENT_MULTIPLIER: number;
+export const PUMPKIN_MAX_TARGET: number;
 
 export type RtpRoleId = "potato" | "chili" | "pumpkin" | "tomato" | "peapod" | "mushroom";
 export type AbilityRolls = number | Partial<Record<RtpRoleId | "target" | "peapodTarget" | "peapodPrize", number>>;
 export type SettlementResult = { payout: number; note: string; outcome: "neutral" | "bonus"; triggeredRoleIds: RtpRoleId[] };
 export type RtpWager = { roleId: RtpRoleId; stake: number; target: number; manual?: boolean; peapodThreshold?: number; peapodFactor?: number; duoThreshold?: number; duoFactor?: number };
-export type PumpkinContract = { active: boolean; stake: number; target: number; clears: number; multipliers: number[]; stages: number; factor: number; ruleKey: string; baseRtp: number };
+export type PumpkinContract = { active: boolean; stake: number; target: number; clears: number; multipliers: number[]; stages: number; factor: number; ruleKey: string; baseRtp: number; poolAssisted: boolean; poolReserved: number };
 export type PumpkinSettlement = { accepted: boolean; complete: boolean; payout: number; contract: PumpkinContract };
 export type DuoDescription = { key: string; title: string; badge: string; shortSummary: string; summary: string; roleDetails: string[] };
 export type VisualNearMiss = { active: true; extended: boolean; cashAt: number; naturalEnd: number; visualEnd: number };

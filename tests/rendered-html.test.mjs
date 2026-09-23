@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket, canStartRoundEarly, isAutoCashInputDraft, normalizeAutoCashInput } from "../app/ticket-actions.mjs";
+import { createRecoveryPool, normalizeRecoveryPool, planRecoveryRelease, RECOVERY_CORE_SCALES, recoveryCoreScale, reserveRecoveryProfit, settleRecoveryPool, settleRecoveryReservation } from "../app/recovery-pool.mjs";
 import {
   calibratePumpkinContracts,
   calibrateRoundBaseRtp,
+  CORE_RTP,
   crashPointFromUnit,
   createPumpkinContract,
   createVisualNearMiss,
@@ -18,6 +20,7 @@ import {
   expectedPumpkinContractReturn,
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
+  PUMPKIN_MAX_TARGET,
   pumpkinContractBaseRtp,
   settleCrashRole,
   settlePumpkinCashout,
@@ -131,8 +134,8 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙角融合/);
-  assert.match(source, /鎖定下注；連過3局：總獎金×3/);
-  assert.match(source, /開跑抽2–5×目標與獎金倍數；達標後25%機率觸發/);
+  assert.match(source, /鎖定下注；連過3局：總獎金×2\.5/);
+  assert.match(source, /開跑抽2–5×目標與獎金倍數；達標後20%機率觸發/);
   assert.match(source, /連攜啟動！/);
   assert.match(source, /className="duo-activation"/);
   assert.match(source, /className="duo-bridge"/);
@@ -142,7 +145,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /雙注預覽｜/);
   assert.doesNotMatch(source, /stage-duo-preview|目前雙注效果/);
   assert.doesNotMatch(html, /目前雙注效果/);
-  assert.equal((html.match(/5×後 Cash Out：50%機率獎金×2/g) ?? []).length, 2);
+  assert.equal((html.match(/5×後 Cash Out：35%機率獎金×1\.8/g) ?? []).length, 2);
   assert.equal((html.match(/辣味升級/g) ?? []).length, 2);
   assert.match(source, /selectedRoleIds\[0\] === selectedRoleIds\[1\]/);
   assert.match(source, /className="duo-role is-current"/);
@@ -235,17 +238,17 @@ test("keeps every duo on one shared crash without parlay settlement", async () =
 test("replaces both base abilities with one fused rule", () => {
   const potatoChili = duoRuntimeFromRolls(["potato", "chili"], hitRolls);
   assert.equal(settleSuccessfulCashout("chili", 100, 4.99, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 499);
-  assert.equal(settleSuccessfulCashout("potato", 100, 5, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 1000);
+  assert.equal(settleSuccessfulCashout("potato", 100, 5, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 900);
 
   const chiliMushroom = duoRuntimeFromRolls(["chili", "mushroom"], hitRolls);
-  assert.equal(settleSuccessfulCashout("chili", 100, 5, hitRolls, ["chili", "mushroom"], { duoRuntime: chiliMushroom }).payout, 4000);
+  assert.equal(settleSuccessfulCashout("chili", 100, 5, hitRolls, ["chili", "mushroom"], { duoRuntime: chiliMushroom }).payout, 3000);
   assert.equal(settleSuccessfulCashout("mushroom", 100, 5, neutralRolls, ["chili", "mushroom"], { duoRuntime: chiliMushroom }).payout, 500);
 
   const peaMushroom = duoRuntimeFromRolls(["peapod", "mushroom"], { ...hitRolls, peapodTarget: .99, peapodPrize: .99 });
   assert.equal(peaMushroom.threshold, 5);
-  assert.equal(peaMushroom.factor, 20);
+  assert.equal(peaMushroom.factor, 12);
   assert.equal(settleSuccessfulCashout("peapod", 100, 4.99, hitRolls, ["peapod", "mushroom"], { duoRuntime: peaMushroom }).payout, 499);
-  assert.equal(settleSuccessfulCashout("peapod", 100, 5, hitRolls, ["peapod", "mushroom"], { duoRuntime: peaMushroom }).payout, 10000);
+  assert.equal(settleSuccessfulCashout("peapod", 100, 5, hitRolls, ["peapod", "mushroom"], { duoRuntime: peaMushroom }).payout, 6000);
 });
 
 test("keeps thresholds and showcase forcing honest", () => {
@@ -253,13 +256,13 @@ test("keeps thresholds and showcase forcing honest", () => {
   assert.equal(settleSuccessfulCashout("potato", 100, 2, hitRolls).outcome, "neutral");
   assert.equal(settleSuccessfulCashout("chili", 100, 5, hitRolls).outcome, "bonus");
   assert.equal(settleSuccessfulCashout("chili", 100, 4.99, hitRolls).outcome, "neutral");
-  assert.equal(settleSuccessfulCashout("mushroom", 100, 2, hitRolls).payout, 1600);
+  assert.equal(settleSuccessfulCashout("mushroom", 100, 2, hitRolls).payout, 1200);
   const peaHit = { ...hitRolls, peapodPrize: .999 };
   assert.equal(settleSuccessfulCashout("peapod", 100, 2.99, peaHit, ["peapod"], { peapodThreshold: 3 }).payout, 299);
-  assert.equal(settleSuccessfulCashout("peapod", 100, 3, peaHit, ["peapod"], { peapodThreshold: 3 }).payout, 6000);
+  assert.equal(settleSuccessfulCashout("peapod", 100, 3, peaHit, ["peapod"], { peapodThreshold: 3 }).payout, 2400);
   assert.equal(settleSuccessfulCashout("peapod", 100, 3, neutralRolls, ["peapod"], { peapodThreshold: 3 }).payout, 300);
   assert.deepEqual([0, .25, .5, .75, .999].map(peapodThresholdFromUnit), [2, 3, 4, 5, 5]);
-  assert.deepEqual([0, .75, .92, .981, .996].map(peapodPayoutFactorFromUnit), [2, 3, 5, 10, 20]);
+  assert.deepEqual([0, .75, .92, .981, .996].map(peapodPayoutFactorFromUnit), [1.5, 3, 5, 8, 8]);
   assert.equal(settleCrashRole("pumpkin", 100, 1.2, hitRolls).payout, 0);
   assert.equal(settleCrashRole("peapod", 100, 8, hitRolls).payout, 0);
 });
@@ -276,13 +279,13 @@ test("locks one pumpkin stake across three consecutive successful rounds", () =>
   assert.equal(second.contract.clears, 2);
   const third = settlePumpkinCashout(second.contract, 2.4);
   assert.equal(third.complete, true);
-  assert.equal(third.payout, 1980);
+  assert.equal(third.payout, 1650);
   assert.equal(third.contract.active, false);
   assert.equal(settlePumpkinCrash(second.contract).active, false);
 
-  for (const target of [1.01, 1.5, 2, 2.5, 2.88]) {
+  for (const target of [1.01, 1.5, 2, 2.5, PUMPKIN_MAX_TARGET]) {
     const baseRtp = pumpkinContractBaseRtp(target);
-    assert.ok(Math.abs(expectedPumpkinContractReturn(100, target, baseRtp) / 100 - TARGET_RTP) < 1e-12);
+    assert.ok(Math.abs(expectedPumpkinContractReturn(100, target, baseRtp) / 100 - CORE_RTP) < 1e-12);
   }
 });
 
@@ -297,7 +300,7 @@ test("draws independent auto targets for both tomato-link tickets", async () => 
     { roleId: "tomato", stake: 100, target: second.autoTarget, duoThreshold: second.threshold, duoFactor: second.factor },
   ];
   const baseRtp = calibrateRoundBaseRtp(wagers);
-  assert.ok(Math.abs(expectedRoundReturn(wagers, baseRtp) / 200 - TARGET_RTP) < 1e-9);
+  assert.ok(Math.abs(expectedRoundReturn(wagers, baseRtp) / 200 - CORE_RTP) < 1e-9);
 
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /function runtimeForTicket/);
@@ -322,14 +325,14 @@ test("removes the obsolete pumpkin refund label", async () => {
   assert.match(styles, /content:"闖關成功"/);
 });
 
-test("calibrates and locks two independently drawn pumpkin-tomato contract targets to 96%", async () => {
+test("calibrates and locks two independently drawn pumpkin-tomato contract targets to the 92% core", async () => {
   const first = createPumpkinContract(100, 2, { stages: 2, factor: 5, ruleKey: "pumpkin|tomato" });
   const second = createPumpkinContract(100, 5, { stages: 2, factor: 5, ruleKey: "pumpkin|tomato" });
   const baseRtp = calibratePumpkinContracts([first, second]);
   const expected = expectedPumpkinContractReturn(100, 2, baseRtp, { stages: 2, factor: 5 })
     + expectedPumpkinContractReturn(100, 5, baseRtp, { stages: 2, factor: 5 });
-  assert.ok(baseRtp < TARGET_RTP);
-  assert.ok(Math.abs(expected / 200 - TARGET_RTP) < 1e-9);
+  assert.ok(baseRtp < CORE_RTP);
+  assert.ok(Math.abs(expected / 200 - CORE_RTP) < 1e-9);
   const locked = [first, second].map((contract) => ({ ...contract, baseRtp }));
   assert.equal(locked[0].baseRtp, locked[1].baseRtp);
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
@@ -382,17 +385,17 @@ test("matches the analytical feature budget for each single role", () => {
   }
 });
 
-test("calibrates all six single-role and 21 unordered two-role VI curves to 96% RTP", () => {
+test("calibrates all six single-role and 21 unordered two-role VI curves to the 92% core RTP", () => {
   let combinationCount = 0;
   for (const roleId of roleIds) {
     if (roleId === "pumpkin") {
       const contract = createPumpkinContract(1, 2);
-      assert.ok(Math.abs(expectedPumpkinContractReturn(1, 2, contract.baseRtp, contract) - TARGET_RTP) < 1e-12);
+      assert.ok(Math.abs(expectedPumpkinContractReturn(1, 2, contract.baseRtp, contract) - CORE_RTP) < 1e-12);
     } else {
       const target = roleId === "potato" ? 1.99 : roleId === "chili" ? 5 : roleId === "peapod" ? 4 : 2;
       const wager = { roleId, stake: 1, target, manual: roleId !== "tomato", peapodThreshold: 4, peapodFactor: 3 };
       const baseRtp = calibrateRoundBaseRtp([wager]);
-      assert.ok(Math.abs(expectedRoundReturn([wager], baseRtp) - TARGET_RTP) < 1e-9, `${roleId} returned ${expectedRoundReturn([wager], baseRtp)}`);
+      assert.ok(Math.abs(expectedRoundReturn([wager], baseRtp) - CORE_RTP) < 1e-9, `${roleId} returned ${expectedRoundReturn([wager], baseRtp)}`);
     }
     combinationCount += 1;
   }
@@ -405,7 +408,7 @@ test("calibrates all six single-role and 21 unordered two-role VI curves to 96% 
         const contracts = pair.map(() => createPumpkinContract(100, target, { stages: runtime.rule.stages, factor: runtime.factor }));
         const baseRtp = calibratePumpkinContracts(contracts);
         const expected = contracts.reduce((sum, contract) => sum + expectedPumpkinContractReturn(100, target, baseRtp, contract), 0);
-        assert.ok(Math.abs(expected / 200 - TARGET_RTP) < 1e-12);
+        assert.ok(Math.abs(expected / 200 - CORE_RTP) < 1e-12);
         combinationCount += 1;
         continue;
       }
@@ -418,15 +421,15 @@ test("calibrates all six single-role and 21 unordered two-role VI curves to 96% 
       ];
       const baseRtp = calibrateRoundBaseRtp(wagers);
       const combinedRtp = expectedRoundReturn(wagers, baseRtp) / wagers.reduce((sum, wager) => sum + wager.stake, 0);
-      assert.ok(baseRtp <= TARGET_RTP);
-      assert.ok(Math.abs(combinedRtp - TARGET_RTP) < 1e-9, `${roleIds[first]} + ${roleIds[second]} returned ${combinedRtp}`);
+      assert.ok(baseRtp <= CORE_RTP);
+      assert.ok(Math.abs(combinedRtp - CORE_RTP) < 1e-9, `${roleIds[first]} + ${roleIds[second]} returned ${combinedRtp}`);
       combinationCount += 1;
     }
   }
   assert.equal(combinationCount, 27);
 });
 
-test("holds 96% across an exhaustive duo target and stake matrix", () => {
+test("holds 92% core RTP across an exhaustive duo target and stake matrix", () => {
   const targets = [1.2, 1.5, 1.99, 2, 3, 4, 4.99, 5, 6, 10, 25, 50, 99];
   const stakePairs = [[1, 1], [1, 3], [3, 1], [10, 37]];
   let duoCases = 0;
@@ -442,7 +445,7 @@ test("holds 96% across an exhaustive duo target and stake matrix", () => {
         ];
         const baseRtp = calibrateRoundBaseRtp(wagers);
         const rtp = expectedRoundReturn(wagers, baseRtp) / (firstStake + secondStake);
-        assert.ok(Math.abs(rtp - TARGET_RTP) < 1e-9);
+        assert.ok(Math.abs(rtp - CORE_RTP) < 1e-9);
         duoCases += 1;
       }
     }
@@ -450,10 +453,10 @@ test("holds 96% across an exhaustive duo target and stake matrix", () => {
   assert.ok(duoCases > 9000);
 });
 
-test("keeps every tested manual cashout strategy at or below 96%", () => {
+test("keeps every tested manual cashout strategy at or below the 92% core", () => {
   const targets = [1.01, 1.2, 1.5, 1.98, 1.99, 2, 2.01, 2.5, 2.99, 3, 3.01, 4.99, 5, 5.01, 10, 50, 99];
   const stakePairs = [[1, 1], [1, 3], [3, 1]];
-  const assertCapped = (rtp, label) => assert.ok(rtp <= TARGET_RTP + 1e-9, `${label} returned ${rtp}`);
+  const assertCapped = (rtp, label) => assert.ok(rtp <= CORE_RTP + 1e-9, `${label} returned ${rtp}`);
 
   for (let first = 0; first < roleIds.length; first += 1) {
     for (let second = first; second < roleIds.length; second += 1) {
@@ -489,8 +492,8 @@ test("ignores the editable target when a wager is marked for manual cashout", ()
   const latePlan = [{ roleId: "potato", stake: 100, target: 50, manual: true }];
   const baseRtp = calibrateRoundBaseRtp(earlyPlan);
   assert.equal(baseRtp, calibrateRoundBaseRtp(latePlan));
-  assert.ok(Math.abs(expectedRoundReturn([{ ...earlyPlan[0], target: 1.5 }], baseRtp) / 100 - TARGET_RTP) < 1e-9);
-  assert.ok(expectedRoundReturn([{ ...earlyPlan[0], target: 2 }], baseRtp) / 100 < TARGET_RTP);
+  assert.ok(Math.abs(expectedRoundReturn([{ ...earlyPlan[0], target: 1.5 }], baseRtp) / 100 - CORE_RTP) < 1e-9);
+  assert.ok(expectedRoundReturn([{ ...earlyPlan[0], target: 2 }], baseRtp) / 100 < CORE_RTP);
 });
 
 test("defines a visible description for all 21 unordered role pairs", () => {
@@ -520,7 +523,7 @@ test("keeps role and fusion copy short and consistent", async () => {
 
 test("maps the committed crash unit through the selected VI curve", () => {
   const sampleCount = 300_000;
-  for (const baseRtp of [0.96, 0.85, 0.72, 0.58]) {
+  for (const baseRtp of [CORE_RTP, 0.85, 0.72, 0.58]) {
     for (const multiplier of [1.01, 1.5, 2, 5, 10, 50, 99.9]) {
       let wins = 0;
       for (let index = 0; index < sampleCount; index += 1) {
@@ -533,8 +536,8 @@ test("maps the committed crash unit through the selected VI curve", () => {
 });
 
 test("uses the same two-decimal boundary for 1.01x display and auto cashout", async () => {
-  const exactUnit = 1 - TARGET_RTP / 1.01;
-  const belowUnit = 1 - TARGET_RTP / 1.009;
+  const exactUnit = 1 - CORE_RTP / 1.01;
+  const belowUnit = 1 - CORE_RTP / 1.009;
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.equal(crashPointFromUnit(exactUnit), 1.01);
   assert.equal(crashPointFromUnit(belowUnit), 1);
@@ -544,7 +547,7 @@ test("uses the same two-decimal boundary for 1.01x display and auto cashout", as
   assert.match(source, /cashOut\(ticketIndex, Math\.floor\(multiplier \* 100 \+ 1e-9\) \/ 100\)/);
 });
 
-test("strong abilities and links lower the base curve while preserving the 96% target", () => {
+test("strong abilities and links lower the base curve while preserving the 92% core target", () => {
   const plain = [{ roleId: "peapod", stake: 1, target: 3, peapodThreshold: 3, peapodFactor: 5 }];
   const runtime = duoRuntimeFromRolls(["mushroom", "tomato"], { target: .5, peapodTarget: .5, peapodPrize: .5 });
   const shared = [
@@ -553,7 +556,46 @@ test("strong abilities and links lower the base curve while preserving the 96% t
   ];
   const plainBaseRtp = calibrateRoundBaseRtp(plain);
   const sharedBaseRtp = calibrateRoundBaseRtp(shared);
-  assert.ok(plainBaseRtp < TARGET_RTP);
-  assert.ok(sharedBaseRtp < TARGET_RTP);
-  assert.ok(Math.abs(expectedRoundReturn(shared, sharedBaseRtp) / 2 - TARGET_RTP) < 1e-9);
+  assert.ok(plainBaseRtp < CORE_RTP);
+  assert.ok(sharedBaseRtp < CORE_RTP);
+  assert.ok(Math.abs(expectedRoundReturn(shared, sharedBaseRtp) / 2 - CORE_RTP) < 1e-9);
+});
+
+test("allocates half of the 92% core net loss and reconciles to the 96% long-term target", () => {
+  const funded = settleRecoveryPool(createRecoveryPool(0), { coreStake: 10_000, corePayout: 9_200 });
+  assert.equal(funded.reserve, 400);
+  assert.equal((9_200 + funded.reserve) / 10_000, TARGET_RTP);
+  const plan = planRecoveryRelease(funded, 50, 0);
+  assert.equal(plan.active, true);
+  assert.equal(plan.mode, "crash");
+  assert.equal(plan.crashFloor, 9);
+  const released = settleRecoveryPool(funded, { releaseActive: true, releasedProfit: 400, thresholdUnit: 1, cooldownUnit: .9 });
+  assert.equal(released.reserve, 0);
+  assert.equal(released.cooldown, 3);
+  assert.equal(released.thresholdFactor, 7);
+});
+
+test("never approves or records a pool-funded profit above the available reserve", () => {
+  const funded = { ...createRecoveryPool(), reserve: 100 };
+  const rejected = reserveRecoveryProfit(funded, 100.01);
+  assert.equal(rejected.accepted, false);
+  assert.equal(rejected.pool.reserve, 100);
+  const reserved = reserveRecoveryProfit(funded, 100);
+  assert.equal(reserved.accepted, true);
+  assert.equal(reserved.pool.reserve, 0);
+  assert.equal(settleRecoveryReservation(reserved.pool, reserved.amount, false).reserve, 100);
+  const paid = settleRecoveryReservation(reserved.pool, reserved.amount, true);
+  assert.equal(paid.reserve, 0);
+  assert.equal(paid.totalReleasedProfit, 100);
+  assert.equal(normalizeRecoveryPool({ reserve: -1 }).reserve, 0);
+});
+
+test("defines a calibrated recovery curve for every single role and unordered pair", () => {
+  const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
+  assert.equal(Object.keys(RECOVERY_CORE_SCALES).length, 27);
+  for (const roleId of roleIds) assert.ok(recoveryCoreScale([roleId]) > 0 && recoveryCoreScale([roleId]) <= 1);
+  for (let first = 0; first < roleIds.length; first += 1) for (let second = first; second < roleIds.length; second += 1) {
+    const scale = recoveryCoreScale([roleIds[first], roleIds[second]]);
+    assert.ok(scale > 0 && scale <= 1, `${roleIds[first]} + ${roleIds[second]} is missing a recovery calibration`);
+  }
 });

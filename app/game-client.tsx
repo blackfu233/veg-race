@@ -3,10 +3,12 @@
 import Image from "next/image";
 import { CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
+import { createRecoveryPool, normalizeRecoveryPool, planRecoveryRelease, recoveryCoreScale, reserveRecoveryProfit, settleRecoveryPool, settleRecoveryReservation } from "./recovery-pool.mjs";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket, canStartRoundEarly, isAutoCashInputDraft, normalizeAutoCashInput } from "./ticket-actions.mjs";
 import {
   calibratePumpkinContracts,
   calibrateRoundBaseRtp,
+  CORE_RTP,
   crashPointFromUnit,
   createPumpkinContract,
   createVisualNearMiss,
@@ -14,6 +16,7 @@ import {
   duoRuleFor,
   duoRuntimeForTicket,
   MAX_SETTLEMENT_MULTIPLIER,
+  PUMPKIN_MAX_TARGET,
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
   settleCrashRole,
@@ -47,6 +50,8 @@ type PumpkinContract = {
   factor: number;
   ruleKey: string;
   baseRtp: number;
+  poolAssisted: boolean;
+  poolReserved: number;
 };
 
 type Role = {
@@ -88,28 +93,39 @@ type Ticket = {
   peapodThreshold: number | null;
   peapodFactor: number | null;
   pumpkinContract: PumpkinContract;
+  poolStakePending: boolean;
+  poolAssisted: boolean;
+  corePayout: number;
   note: string;
 };
+
+type RecoveryPool = ReturnType<typeof createRecoveryPool>;
+type RecoveryPlan = ReturnType<typeof planRecoveryRelease>;
 
 type RoundSpec = {
   seed: string;
   commitment: string;
   crashUnit: number;
   baseRtp: number;
+  coreCrashPoint: number;
   crashPoint: number;
   nearMissUnit: number;
+  poolThresholdUnit: number;
+  poolModeUnit: number;
+  poolCooldownUnit: number;
+  recoveryPlan: RecoveryPlan;
   abilityRolls: AbilityRolls[];
 };
 
 const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, naturalEnd: 0, visualEnd: 0 };
 
 const roles: Role[] = [
-  { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：28%機率獎金×2", detail: "2×前 Cash Out：28%機率獎金×2", accent: "#f0b55b" },
-  { id: "chili", name: "辣椒", short: "5×後 Cash Out：34%機率獎金×2", detail: "5×後 Cash Out：34%機率獎金×2", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "鎖定下注；連過3局：總獎金×3", detail: "鎖定下注；連過3局：總獎金×3", accent: "#ff9d3d" },
-  { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：12%機率獎金×3", detail: "2–5×自動 Cash Out：12%機率獎金×3", accent: "#ff6358" },
-  { id: "peapod", name: "豌豆莢", short: "開跑抽2–5×目標與獎金倍數；達標後25%機率觸發", detail: "開跑抽2–5×目標與獎金倍數；達標後25%機率觸發", accent: "#70d858" },
-  { id: "mushroom", name: "蘑菇", short: "Cash Out：4.5%機率獎金×8", detail: "Cash Out：4.5%機率獎金×8", accent: "#8a5abb" },
+  { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：22%機率獎金×1.8", detail: "2×前 Cash Out：22%機率獎金×1.8", accent: "#f0b55b" },
+  { id: "chili", name: "辣椒", short: "5×後 Cash Out：26%機率獎金×1.8", detail: "5×後 Cash Out：26%機率獎金×1.8", accent: "#ff5a4f" },
+  { id: "pumpkin", name: "南瓜", short: "鎖定下注；連過3局：總獎金×2.5", detail: "鎖定下注；連過3局：總獎金×2.5", accent: "#ff9d3d" },
+  { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：10%機率獎金×2.5", detail: "2–5×自動 Cash Out：10%機率獎金×2.5", accent: "#ff6358" },
+  { id: "peapod", name: "豌豆莢", short: "開跑抽2–5×目標與獎金倍數；達標後20%機率觸發", detail: "開跑抽2–5×目標與獎金倍數；達標後20%機率觸發", accent: "#70d858" },
+  { id: "mushroom", name: "蘑菇", short: "Cash Out：4%機率獎金×6", detail: "Cash Out：4%機率獎金×6", accent: "#8a5abb" },
 ];
 
 const forcedAbilityRolls: AbilityRolls = {
@@ -127,7 +143,7 @@ const forcedAbilityRolls: AbilityRolls = {
 const roleById = Object.fromEntries(roles.map((role) => [role.id, role])) as Record<RoleId, Role>;
 
 function emptyContract(): PumpkinContract {
-  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 3, ruleKey: "pumpkin", baseRtp: TARGET_RTP };
+  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 2.5, ruleKey: "pumpkin", baseRtp: CORE_RTP, poolAssisted: false, poolReserved: 0 };
 }
 
 function runtimeForTicket(roleIds: RoleId[], spec: RoundSpec, ticketIndex: number, showcase = false) {
@@ -152,6 +168,9 @@ function blankTicket(index: number): Ticket {
     peapodThreshold: null,
     peapodFactor: null,
     pumpkinContract: emptyContract(),
+    poolStakePending: false,
+    poolAssisted: false,
+    corePayout: 0,
     note: "",
   };
 }
@@ -193,6 +212,69 @@ function ticketsToRtpWagers(tickets: Ticket[], spec: RoundSpec) {
   });
 }
 
+const recoveryCashoutProbes = [1.01, 1.49, 1.99, 2, 2.99, 3, 3.99, 4, 4.99, 5, 6.99, 7, 10, 20, 50, 99];
+
+function disabledRecoveryPlan(plan: RecoveryPlan): RecoveryPlan {
+  return { ...plan, active: false, mode: null, crashFloor: 0 };
+}
+
+function projectedTicketPayout(ticket: Ticket, ticketIndex: number, roleIds: RoleId[], spec: RoundSpec, cap: number, forceAbility: boolean) {
+  const runtime = roleIds.length === 2 ? runtimeForTicket(roleIds, spec, ticketIndex) : null;
+  const automaticTarget = runtime?.rule.kind === "auto" ? runtime.autoTarget
+    : runtime?.rule.kind === "reveal-auto" ? runtime.threshold
+    : usesTomatoAuto(ticket) ? ticket.autoRoleTarget
+    : ticket.autoCash;
+  const targets = automaticTarget
+    ? [automaticTarget]
+    : [...recoveryCashoutProbes.filter((target) => target <= cap + 1e-9), cap];
+  const payoutRolls = forceAbility
+    ? { ...spec.abilityRolls[ticketIndex], potato: 0, chili: 0, tomato: 0, peapod: 0, mushroom: 0 }
+    : spec.abilityRolls[ticketIndex];
+  return Math.max(0, ...targets.filter((target): target is number => Number.isFinite(target) && target >= 1.01 && target <= cap + 1e-9).map((target) => settleSuccessfulCashout(
+    ticket.roleId,
+    ticket.amount,
+    target,
+    payoutRolls,
+    roleIds,
+    {
+      peapodThreshold: ticket.peapodThreshold ?? undefined,
+      peapodFactor: ticket.peapodFactor ?? undefined,
+      duoRuntime: runtime ?? undefined,
+    },
+  ).payout));
+}
+
+function affordableRecoveryPlan(plan: RecoveryPlan, tickets: Ticket[], spec: RoundSpec, coreCrashPoint: number) {
+  if (!plan.active) return plan;
+  const placed = tickets.filter((ticket) => ticket.enabled && ticket.placed);
+  const totalStake = placed.reduce((sum, ticket) => sum + ticket.amount, 0);
+  const contracts = placed.filter((ticket) => ticket.pumpkinContract.active);
+  if (contracts.length) {
+    if (contracts.length !== placed.length || contracts.some((ticket) => ticket.pumpkinContract.poolAssisted)) return disabledRecoveryPlan(plan);
+    const unsupportedManualContract = contracts.some((ticket) => ticket.pumpkinContract.ruleKey === "chili|pumpkin" && !ticket.autoCash);
+    const requiredProfit = contracts.reduce((sum, ticket) => {
+      const contract = ticket.pumpkinContract;
+      const remainingStages = Math.max(0, contract.stages - contract.clears);
+      const finalPayout = contract.stake * (contract.multipliers.reduce((subtotal, value) => subtotal + value, 0) + remainingStages * contract.target) * contract.factor;
+      return sum + Math.max(0, finalPayout - contract.stake);
+    }, 0);
+    if (unsupportedManualContract || requiredProfit > plan.available + 1e-9) return disabledRecoveryPlan(plan);
+    return { ...plan, mode: "crash" as const, crashFloor: Math.max(5, ...contracts.map((ticket) => ticket.pumpkinContract.target)) };
+  }
+  const roleIds = placed.map((ticket) => ticket.roleId);
+  const projectedProfit = (cap: number, forceAbility: boolean) => Math.max(0, placed.reduce((sum, ticket, index) => sum + projectedTicketPayout(ticket, index, roleIds, spec, cap, forceAbility), 0) - totalStake);
+  if (plan.mode === "ability") return projectedProfit(coreCrashPoint, true) <= plan.available + 1e-9 ? plan : disabledRecoveryPlan(plan);
+  if (projectedProfit(5, false) > plan.available + 1e-9) return disabledRecoveryPlan(plan);
+  let low = 5;
+  let high = plan.crashFloor;
+  for (let step = 0; step < 20; step += 1) {
+    const midpoint = (low + high) / 2;
+    if (projectedProfit(midpoint, false) <= plan.available + 1e-9) low = midpoint;
+    else high = midpoint;
+  }
+  return { ...plan, crashFloor: Math.floor(low * 100) / 100 };
+}
+
 function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
   const placedIndexes = tickets.flatMap((ticket, index) => ticket.enabled && ticket.placed ? [index] : []);
   if (placedIndexes.length === 2) {
@@ -200,7 +282,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
     const runtime = runtimeForTicket(roleIds, spec, placedIndexes[0]);
     if (runtime?.rule.kind === "contract") {
       const targetSourceIndex = placedIndexes.find((index) => tickets[index].roleId === "pumpkin") ?? placedIndexes[0];
-      const selectedTarget = Math.min(runtime.rule.max ? runtime.rule.max - .01 : 2.88, tickets[targetSourceIndex].autoCashTarget);
+      const selectedTarget = Math.min(runtime.rule.max ? runtime.rule.max - .01 : PUMPKIN_MAX_TARGET, tickets[targetSourceIndex].autoCashTarget);
       const configured = tickets.map((ticket, index) => {
         if (!placedIndexes.includes(index)) return ticket;
         const ticketRuntime = runtimeForTicket(roleIds, spec, index);
@@ -233,7 +315,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
         ...ticket,
         pumpkinContract: ticket.pumpkinContract.active && ticket.pumpkinContract.ruleKey === "pumpkin"
           ? ticket.pumpkinContract
-          : createPumpkinContract(ticket.amount, Math.min(2.88, ticket.autoCashTarget)),
+          : createPumpkinContract(ticket.amount, Math.min(PUMPKIN_MAX_TARGET, ticket.autoCashTarget)),
       };
     });
   }
@@ -263,14 +345,18 @@ async function digestHex(value: string) {
 async function makeRoundSpec(): Promise<RoundSpec> {
   const seed = crypto.randomUUID();
   const abilityKeys = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target", "peapodTarget", "peapodPrize"] as const;
-  const [commitment, crashHash, nearMissHash, ...abilityHashes] = await Promise.all([
+  const [commitment, crashHash, nearMissHash, poolThresholdHash, poolModeHash, poolCooldownHash, ...abilityHashes] = await Promise.all([
     digestHex(seed),
     digestHex(seed + ":crash"),
     digestHex(seed + ":near-miss"),
+    digestHex(seed + ":pool-threshold"),
+    digestHex(seed + ":pool-mode"),
+    digestHex(seed + ":pool-cooldown"),
     ...[0, 1].flatMap((index) => abilityKeys.map((key) => digestHex(`${seed}:ticket:${index}:${key}`))),
   ]);
   const crashUnit = Number.parseInt(crashHash.slice(0, 13), 16) / 0x10000000000000;
   const nearMissUnit = Number.parseInt(nearMissHash.slice(0, 13), 16) / 0x10000000000000;
+  const poolUnit = (hash: string) => Number.parseInt(hash.slice(0, 13), 16) / 0x10000000000000;
   const abilityRolls = [0, 1].map((index) => Object.fromEntries(abilityKeys.map((key, keyIndex) => [
     key,
     Number.parseInt(abilityHashes[index * abilityKeys.length + keyIndex].slice(0, 13), 16) / 0x10000000000000,
@@ -279,11 +365,23 @@ async function makeRoundSpec(): Promise<RoundSpec> {
     seed,
     commitment,
     crashUnit,
-    baseRtp: TARGET_RTP,
+    baseRtp: CORE_RTP,
+    coreCrashPoint: crashPointFromUnit(crashUnit),
     crashPoint: crashPointFromUnit(crashUnit),
     nearMissUnit,
+    poolThresholdUnit: poolUnit(poolThresholdHash),
+    poolModeUnit: poolUnit(poolModeHash),
+    poolCooldownUnit: poolUnit(poolCooldownHash),
+    recoveryPlan: planRecoveryRelease(createRecoveryPool(), 0),
     abilityRolls,
   };
+}
+
+function settlementRolls(spec: RoundSpec | null, ticketIndex: number, showcase: boolean) {
+  if (showcase) return forcedAbilityRolls;
+  const rolls = spec?.abilityRolls[ticketIndex] ?? forcedAbilityRolls;
+  if (!spec?.recoveryPlan.active || spec.recoveryPlan.mode !== "ability") return rolls;
+  return { ...rolls, potato: 0, chili: 0, tomato: 0, peapod: 0, mushroom: 0 };
 }
 
 function Sprite({ roleId, className = "" }: { roleId: RoleId; className?: string }) {
@@ -331,6 +429,7 @@ export default function GameClient() {
   const [toast, setToast] = useState<{ title: string; body: string; tone: "good" | "bad" | "gold" } | null>(null);
   const [skillEffects, setSkillEffects] = useState<SkillFx[]>([]);
   const [safeRun, setSafeRun] = useState<SafeRun>(idleSafeRun);
+  const [recoveryPool, setRecoveryPool] = useState<RecoveryPool>(() => createRecoveryPool());
 
   const ticketsRef = useRef(tickets);
   const balanceRef = useRef(balance);
@@ -338,6 +437,9 @@ export default function GameClient() {
   const roundSpecRef = useRef<RoundSpec | null>(roundSpec);
   const showcaseModeRef = useRef(showcaseMode);
   const safeRunRef = useRef<SafeRun>(idleSafeRun);
+  const recoveryPoolRef = useRef(recoveryPool);
+  const recoveryAppliedRef = useRef(false);
+  const recoveryPoolLoadedRef = useRef(false);
   const betDeadlineRef = useRef(0);
   const cancelledAutoBetRef = useRef(new Set<number>());
   const runStartRef = useRef(0);
@@ -383,6 +485,21 @@ export default function GameClient() {
   useEffect(() => {
     try { localStorage.setItem("veggie-dash-balance", String(balance)); } catch { /* Keep the demo playable without persistence. */ }
   }, [balance]);
+
+  useEffect(() => {
+    let saved: RecoveryPool;
+    try { saved = normalizeRecoveryPool(JSON.parse(localStorage.getItem("veggie-dash-recovery-pool-v1") ?? "null")); }
+    catch { saved = createRecoveryPool(); }
+    recoveryPoolRef.current = saved;
+    recoveryPoolLoadedRef.current = true;
+    const timer = setTimeout(() => setRecoveryPool(saved), 0);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!recoveryPoolLoadedRef.current || recoveryPool !== recoveryPoolRef.current) return;
+    try { localStorage.setItem("veggie-dash-recovery-pool-v1", JSON.stringify(recoveryPool)); } catch { /* Hidden recovery state may stay session-only. */ }
+  }, [recoveryPool]);
 
   useEffect(() => {
     let savedMuted = false;
@@ -490,6 +607,9 @@ export default function GameClient() {
       peapodThreshold: current.roleId === "peapod" ? peapodThresholdFromUnit(peapodTargetRoll) : null,
       peapodFactor: current.roleId === "peapod" ? peapodPayoutFactorFromUnit(peapodPrizeRoll) : null,
       autoRoleTarget: current.roleId === "tomato" ? Math.round((2 + targetRoll * 3) * 100) / 100 : null,
+      poolStakePending: true,
+      poolAssisted: false,
+      corePayout: 0,
     } : current);
     const configuredTickets = applyLockedAbilitySetup(nextTickets, spec);
     ticketsRef.current = configuredTickets;
@@ -518,6 +638,9 @@ export default function GameClient() {
       peapodThreshold: null,
       peapodFactor: null,
       pumpkinContract: settlePumpkinCrash(ticket.pumpkinContract),
+      poolStakePending: false,
+      poolAssisted: false,
+      corePayout: 0,
     } : ticket);
     const cancelledTickets = roundSpecRef.current ? applyLockedAbilitySetup(resetTickets, roundSpecRef.current) : resetTickets;
     ticketsRef.current = cancelledTickets;
@@ -550,12 +673,12 @@ export default function GameClient() {
     const currentTickets = ticketsRef.current;
     const current = currentTickets[index];
     if (!current || current.status !== "running" || current.remaining <= 0) return;
-    const abilityRolls = showcaseModeRef.current
-      ? forcedAbilityRolls
-      : roundSpecRef.current?.abilityRolls[index] ?? forcedAbilityRolls;
-    const roundRoleIds = selectedRoundRoleIds(currentTickets);
     const spec = roundSpecRef.current;
+    const abilityRolls = settlementRolls(spec, index, showcaseModeRef.current);
+    const coreAbilityRolls = spec?.abilityRolls[index] ?? forcedAbilityRolls;
+    const roundRoleIds = selectedRoundRoleIds(currentTickets);
     const duoRuntime = roundRoleIds.length === 2 && spec ? runtimeForTicket(roundRoleIds, spec, index, showcaseModeRef.current) : null;
+    const coreDuoRuntime = roundRoleIds.length === 2 && spec ? runtimeForTicket(roundRoleIds, spec, index) : null;
     if ((current.roleId === "tomato" || ["auto", "reveal-auto"].includes(duoRuntime?.rule.kind ?? "")) && !automatic) {
       showToast("本局為自動 Cash Out", duoRuntime ? "融合能力已設定本局倍率" : "番茄將於2–5×自動 Cash Out", "bad");
       tone(210);
@@ -569,7 +692,18 @@ export default function GameClient() {
         tone(210);
         return;
       }
-      const challenge = settlePumpkinCashout(contract, at);
+      const newlyAssisted = Boolean(spec?.recoveryPlan.active && !contract.poolAssisted && at > spec.coreCrashPoint + 1e-9);
+      const remainingStages = Math.max(0, contract.stages - contract.clears);
+      const finalPayout = contract.stake * (contract.multipliers.reduce((sum, value) => sum + value, 0) + remainingStages * contract.target) * contract.factor;
+      const reservation = newlyAssisted ? reserveRecoveryProfit(recoveryPoolRef.current, Math.max(0, finalPayout - contract.stake)) : null;
+      const poolAssisted = contract.poolAssisted || Boolean(reservation?.accepted);
+      const poolReserved = contract.poolReserved + (reservation?.amount ?? 0);
+      if (reservation?.accepted) {
+        recoveryPoolRef.current = reservation.pool;
+        setRecoveryPool(reservation.pool);
+        recoveryAppliedRef.current = true;
+      }
+      const challenge = settlePumpkinCashout({ ...contract, poolAssisted, poolReserved }, at);
       if (!challenge.accepted) return;
       const cleared = challenge.complete ? contract.stages : challenge.contract.clears;
       const contractTitle = duoRuleFor(roundRoleIds)?.title ?? "南瓜三連關";
@@ -583,6 +717,8 @@ export default function GameClient() {
         remaining: 0,
         status: "cashed" as const,
         pumpkinContract: challenge.contract,
+        poolAssisted,
+        corePayout: challenge.complete && !poolAssisted ? challenge.payout : 0,
         note,
       } : ticket);
       if (challenge.payout > 0) {
@@ -611,6 +747,13 @@ export default function GameClient() {
       duoRuntime: duoRuntime ?? undefined,
     });
     const paid = settlement.payout;
+    const corePaid = spec && at <= spec.coreCrashPoint + 1e-9
+      ? settleSuccessfulCashout(current.roleId, stake, at, coreAbilityRolls, roundRoleIds, {
+          peapodThreshold: current.peapodThreshold ?? undefined,
+          peapodFactor: current.peapodFactor ?? undefined,
+          duoRuntime: coreDuoRuntime ?? undefined,
+        }).payout
+      : 0;
     const roleNote = current.roleId === "tomato" && !settlement.note
       ? `番茄：${at.toFixed(2)}×自動 Cash Out`
       : "";
@@ -620,11 +763,11 @@ export default function GameClient() {
       triggerSkillFx("tomato", index, "隨機收成！");
     }
     const labels: Partial<Record<RoleId, string>> = {
-      potato: "馬鈴薯 · 早收 ×2！",
-      chili: "辣椒 · 高倍 ×2！",
-      tomato: "番茄旋轉收成 ×3！",
+      potato: "馬鈴薯 · 早收 ×1.8！",
+      chili: "辣椒 · 高倍 ×1.8！",
+      tomato: "番茄旋轉收成 ×2.5！",
       peapod: `豌豆暴擊 ×${Math.round(paid / Math.max(1, stake * at))}！`,
-      mushroom: "蘑菇 · JACKPOT ×8！",
+      mushroom: "蘑菇 · JACKPOT ×6！",
     };
     settlement.triggeredRoleIds.forEach((roleId) => triggerSkillFx(
       roleId,
@@ -639,9 +782,13 @@ export default function GameClient() {
         cashAt: at,
         remaining: 0,
         status: "cashed" as const,
+        corePayout: corePaid,
+        poolAssisted: Boolean(spec?.recoveryPlan.active && paid > corePaid + 1e-9),
         note,
       };
     });
+
+    if (spec?.recoveryPlan.active && paid > corePaid + 1e-9) recoveryAppliedRef.current = true;
 
     const nextBalance = balanceRef.current + paid;
     balanceRef.current = nextBalance;
@@ -667,13 +814,12 @@ export default function GameClient() {
         ...ticket,
         status: "lost" as const,
         payout: 0,
+        corePayout: 0,
         remaining: 0,
         pumpkinContract: settlePumpkinCrash(ticket.pumpkinContract),
         note: `闖關失敗：爆點 ${crashPoint.toFixed(2)}×`,
       };
-      const abilityRolls = showcaseModeRef.current
-        ? forcedAbilityRolls
-        : roundSpecRef.current?.abilityRolls[ticketIndex] ?? forcedAbilityRolls;
+      const abilityRolls = settlementRolls(roundSpecRef.current, ticketIndex, showcaseModeRef.current);
       const settlement = settleCrashRole(ticket.roleId, ticket.amount, crashPoint, abilityRolls, roundRoleIds);
       recovered += settlement.payout;
       if (settlement.triggeredRoleIds.length) {
@@ -687,6 +833,7 @@ export default function GameClient() {
         ...ticket,
         status: "lost" as const,
         payout: settlement.payout,
+        corePayout: 0,
         remaining: 0,
         note: settlement.note || `爆點 ${crashPoint.toFixed(2)}×`,
       };
@@ -700,8 +847,40 @@ export default function GameClient() {
       tone(980, .2, "triangle");
       haptic([20, 20, 34]);
     }
-    ticketsRef.current = settled;
-    setTickets(settled);
+    const terminalTickets = settled.filter((ticket) => ticket.poolStakePending && !ticket.pumpkinContract.active);
+    const coreStake = terminalTickets.reduce((sum, ticket) => sum + ticket.amount, 0);
+    const corePayout = terminalTickets.reduce((sum, ticket) => sum + ticket.corePayout, 0);
+    const actualPayout = terminalTickets.reduce((sum, ticket) => sum + ticket.payout, 0);
+    const reservedContracts = terminalTickets.filter((ticket) => ticket.pumpkinContract.poolReserved > 0);
+    const poolBeforeSettlement = reservedContracts.reduce((pool, ticket) => settleRecoveryReservation(
+      pool,
+      ticket.pumpkinContract.poolReserved,
+      ticket.payout > 0,
+    ), recoveryPoolRef.current);
+    const regularPoolTickets = terminalTickets.filter((ticket) => ticket.pumpkinContract.poolReserved <= 0);
+    const releasedProfit = regularPoolTickets.some((ticket) => ticket.poolAssisted)
+      ? Math.max(0, regularPoolTickets.reduce((sum, ticket) => sum + ticket.payout - ticket.amount, 0))
+      : 0;
+    const spec = roundSpecRef.current;
+    const releaseApplied = Boolean(spec?.recoveryPlan.active && recoveryAppliedRef.current);
+    const nextPool = settleRecoveryPool(poolBeforeSettlement, {
+      coreStake,
+      corePayout,
+      actualPayout,
+      releaseActive: releaseApplied,
+      releasedProfit,
+      thresholdUnit: spec?.poolThresholdUnit,
+      cooldownUnit: spec?.poolCooldownUnit,
+      advanceCooldown: settled.some((ticket) => ticket.enabled && ticket.placed),
+    });
+    recoveryPoolRef.current = nextPool;
+    recoveryAppliedRef.current = false;
+    setRecoveryPool(nextPool);
+    const finalized = settled.map((ticket) => ticket.poolStakePending && !ticket.pumpkinContract.active
+      ? { ...ticket, poolStakePending: false, poolAssisted: false, corePayout: 0, pumpkinContract: { ...ticket.pumpkinContract, poolAssisted: false, poolReserved: 0 } }
+      : ticket);
+    ticketsRef.current = finalized;
+    setTickets(finalized);
   }, [haptic, showToast, tone, triggerSkillFx]);
 
   const startRace = useCallback(() => {
@@ -712,13 +891,23 @@ export default function GameClient() {
     const currentTickets = ticketsRef.current;
     const regularBaseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets, currentSpec));
     const activeContracts = currentTickets.flatMap((ticket) => ticket.enabled && ticket.placed && ticket.pumpkinContract.active ? [ticket.pumpkinContract] : []);
-    const baseRtp = activeContracts.length ? activeContracts[0].baseRtp : regularBaseRtp;
+    const placedTickets = currentTickets.filter((ticket) => ticket.enabled && ticket.placed);
+    const baseRtp = (activeContracts.length ? activeContracts[0].baseRtp : regularBaseRtp) * recoveryCoreScale(placedTickets.map((ticket) => ticket.roleId));
+    const coreCrashPoint = crashPointFromUnit(currentSpec.crashUnit, baseRtp);
+    const exposureStake = placedTickets.reduce((sum, ticket) => sum + ticket.amount, 0);
+    const plannedRelease = planRecoveryRelease(recoveryPoolRef.current, exposureStake, currentSpec.poolModeUnit);
+    const recoveryPlan = affordableRecoveryPlan(plannedRelease, currentTickets, currentSpec, coreCrashPoint);
     const resolvedSpec = {
       ...currentSpec,
       baseRtp,
-      crashPoint: crashPointFromUnit(currentSpec.crashUnit, baseRtp),
+      coreCrashPoint,
+      crashPoint: recoveryPlan.active && recoveryPlan.mode === "crash"
+        ? Math.max(coreCrashPoint, recoveryPlan.crashFloor)
+        : coreCrashPoint,
+      recoveryPlan,
     };
     roundSpecRef.current = resolvedSpec;
+    recoveryAppliedRef.current = false;
     setRoundSpec(resolvedSpec);
     runStartRef.current = performance.now();
     setMultiplier(1);
@@ -766,6 +955,9 @@ export default function GameClient() {
         autoRoleTarget: null,
         peapodThreshold: null,
         peapodFactor: null,
+        poolStakePending: continuesContract ? ticket.poolStakePending : false,
+        poolAssisted: continuesContract ? ticket.poolAssisted : false,
+        corePayout: 0,
         note: continuesContract ? `闖關${ticket.pumpkinContract.clears + 1}/${ticket.pumpkinContract.stages}待跑` : "",
       };
     });
@@ -895,7 +1087,6 @@ export default function GameClient() {
   const currentDuoRuntimes = tickets.map((_, ticketIndex) => duoActive && roundSpec
     ? runtimeForTicket(placedRoleIds, roundSpec, ticketIndex, showcaseMode)
     : null);
-  const currentDuoRuntime = currentDuoRuntimes[0];
   const selectedAutoRange = selectedDuoRule?.kind === "auto"
     ? `${selectedDuoRule.autoMin}–${selectedDuoRule.autoMax}×`
     : selectedDuoRule?.kind === "reveal-auto"
@@ -914,9 +1105,6 @@ export default function GameClient() {
     }
     return duoDescription.summary;
   };
-  const manualCurveActive = !["auto", "reveal-auto"].includes(currentDuoRuntime?.rule.kind ?? "")
-    && tickets.some((ticket) => ticket.enabled && ticket.placed && !ticket.pumpkinContract.active && !usesTomatoAuto(ticket) && !ticket.autoCash);
-
   const stageMessage = (() => {
     if (phase === "betting") {
       if (duoActive) return `${duoDescription.title}已啟動，準備開跑`;
@@ -1000,7 +1188,7 @@ export default function GameClient() {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket) || usesTomatoAuto(ticket)) return;
     const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
-    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
     const target = normalizeAutoCashInput(ticket.autoCashTarget, minTarget, maxTarget, minTarget);
     updateTicket(ticketIndex, (current) => ({ ...current, autoCashTarget: target, autoCash: current.autoCash ? null : target }));
     setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex ? target.toFixed(2) : value));
@@ -1011,7 +1199,7 @@ export default function GameClient() {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket)) return;
     const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
-    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
     const target = normalizeAutoCashInput(nextValue, minTarget, maxTarget, ticket.autoCashTarget);
     updateTicket(ticketIndex, (current) => ({
       ...current,
@@ -1024,7 +1212,7 @@ export default function GameClient() {
   const commitAutoCashInput = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
     const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
-    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
     changeAutoCashTarget(ticketIndex, normalizeAutoCashInput(autoCashInputs[ticketIndex], minTarget, maxTarget, ticket.autoCashTarget));
   };
 
@@ -1037,8 +1225,11 @@ export default function GameClient() {
 
   const resetDemoBalance = () => {
     if (phase !== "betting" || placedCount > 0) return;
+    const resetPool = createRecoveryPool();
     balanceRef.current = 10000;
+    recoveryPoolRef.current = resetPool;
     setBalance(10000);
+    setRecoveryPool(resetPool);
     setRulesOpen(false);
     showToast("虛擬籌碼已重設", "Balance 10,000", "good");
     tone(620, .11, "triangle");
@@ -1243,7 +1434,7 @@ export default function GameClient() {
             const pumpkinChallenge = !fixedManualContract && (ticket.roleId === "pumpkin" || ticket.pumpkinContract.active || duoContract);
             const challengeTargetEditable = !duoContract || selectedDuoRule?.targetMode === "selected";
             const minAutoCash = fixedManualContract ? selectedDuoRule.target : 1.01;
-            const maxAutoCash = !fixedManualContract && ticket.roleId === "pumpkin" ? 2.88 : MAX_SETTLEMENT_MULTIPLIER;
+            const maxAutoCash = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
             const roleDetail = duoActive || duoPreviewActive
               ? duoCardDetail(ticket, ticketIndex)
               : ticket.roleId === "peapod"
@@ -1415,10 +1606,10 @@ export default function GameClient() {
                 </div>
               )}
               <span className="field-label">本局玩法／組合 VI 曲線</span>
-              <code>{phase === "betting" ? "下注鎖定後計算" : `${duoActive ? duoDescription.title : "單注"} · ${((roundSpec?.baseRtp ?? TARGET_RTP) * 100).toFixed(2)}% 基礎曲線 → ${manualCurveActive ? "手動策略最高" : "固定策略"} ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
+              <code>{phase === "betting" ? "下注鎖定後計算" : `${duoActive ? duoDescription.title : "單注"} · 角色與連攜已校準 · 長期目標 ${(TARGET_RTP * 100).toFixed(0)}%`}</code>
               <span className="field-label">演算法</span>
               <code>SHA-256 · committed crash unit + selected VI curve + ticket rolls + presentation unit</code>
-              <p>開局先承諾 Seed 與本局亂數；下注後依角色組合套用 VI 曲線。固定 Auto Cash Out 與闖關校準至 {(TARGET_RTP * 100).toFixed(0)}%，手動策略不高於 {(TARGET_RTP * 100).toFixed(0)}%。兩注共用爆點、各自計算獎金；Cash Out 後追跑只是演出。</p>
+              <p>開局先承諾 Seed 與本局亂數；下注後依角色組合套用 VI 曲線。兩注共用爆點、各自計算獎金；長期回收目標 {(TARGET_RTP * 100).toFixed(0)}%，Cash Out 後追跑只是演出。</p>
               <button className="sheet-primary" onClick={() => setFairOpen(false)}>完成</button>
             </section>
           </div>

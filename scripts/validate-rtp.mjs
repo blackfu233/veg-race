@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   calibratePumpkinContracts,
   calibrateRoundBaseRtp,
+  CORE_RTP,
   crashPointFromUnit,
   createPumpkinContract,
   describeDuoPair,
@@ -22,7 +23,7 @@ import {
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
 const abilityKeys = [...roleIds, "target", "peapodTarget", "peapodPrize"];
 const sampleCount = Number.parseInt(process.argv[2] ?? "1000000", 10);
-const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-all-combinations-v30.json");
+const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-core-all-combinations-v36.json");
 const csvPath = outputPath.replace(/\.json$/i, ".csv");
 
 function mulberry32(seed) {
@@ -207,11 +208,11 @@ function simulateCombination(configuration) {
     totalPayout,
     analyticalRtp,
     simulatedRtp: rtp,
-    deviation: rtp - TARGET_RTP,
+    deviation: rtp - CORE_RTP,
     standardError,
     ci95Low: rtp - 1.96 * standardError,
     ci95High: rtp + 1.96 * standardError,
-    withinFourStandardErrors: Math.abs(rtp - TARGET_RTP) <= tolerance,
+    withinFourStandardErrors: Math.abs(rtp - CORE_RTP) <= tolerance,
     nonzeroRate: nonzero / sampleCount,
     meanBaseRtp: totalBaseRtp / sampleCount,
     meanRounds: totalRounds / sampleCount,
@@ -259,17 +260,18 @@ const results = combinations().map((configuration) => {
   console.log(`${result.label.padEnd(13)} ${(result.simulatedRtp * 100).toFixed(3)}% · exact ${(result.analyticalRtp * 100).toFixed(6)}%`);
   return result;
 });
-const maxAnalyticalDeviation = Math.max(...results.map((result) => Math.abs(result.analyticalRtp - TARGET_RTP)));
+const maxAnalyticalDeviation = Math.max(...results.map((result) => Math.abs(result.analyticalRtp - CORE_RTP)));
 const sampledFailures = results.filter((result) => !result.withinFourStandardErrors);
 const [engineSource, scriptSource] = await Promise.all([
   readFile(new URL("../app/rtp-engine.mjs", import.meta.url)),
   readFile(new URL(import.meta.url)),
 ]);
 const report = {
-  schema: "veggie-dash-rtp-validation/4",
-  variant: "six-role-fusion-v30",
+  schema: "veggie-dash-rtp-validation/5",
+  variant: "six-role-recovery-pool-v36-core",
   generatedAt: new Date().toISOString(),
-  targetRtp: TARGET_RTP,
+  coreTargetRtp: CORE_RTP,
+  longTermTargetRtp: TARGET_RTP,
   payoutConvention: "gross payout includes returned stake; contracts charge one locked stake only",
   sharedEvent: "two tickets share one crash point; tomato-linked targets are independently drawn per ticket",
   strategy: "ability-aligned fixed stop; manual policies cash at the ability threshold, auto policies use their committed target",
@@ -290,7 +292,7 @@ const report = {
   },
   caveats: [
     "Monte Carlo intervals use independent entry-level payout variance and a normal approximation.",
-    "Manual cashout RTP is policy-specific; other manual stopping points are capped at, but can be below, 96%.",
+    "Manual cashout RTP is policy-specific; other manual stopping points are capped at, but can be below, the 92% core target.",
     "This validates the current demo model and is not regulatory certification.",
   ],
   results,
