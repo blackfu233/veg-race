@@ -26,7 +26,6 @@ import {
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
   PUMPKIN_MIN_TARGET,
-  PUMPKIN_MAX_TARGET,
   pumpkinContractBaseRtp,
   settleCrashRole,
   settlePumpkinCashout,
@@ -140,7 +139,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(html, /class="vertical-meters\b/, "the chase meter must stay hidden during betting");
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /雙角融合/);
-  assert.match(source, /鎖定下注；連過3局：總獎金×2\.5/);
+  assert.match(source, /自選1\.5×以上目標，連過3局：總獎金×2\.5/);
   assert.match(source, /開跑抽2–5×目標與獎金倍數；達標後20%機率觸發/);
   assert.match(source, /連攜啟動！/);
   assert.match(source, /className="duo-activation"/);
@@ -274,7 +273,7 @@ test("keeps thresholds and showcase forcing honest", () => {
 });
 
 test("locks one pumpkin stake across three consecutive successful rounds", () => {
-  assert.equal(PUMPKIN_MIN_TARGET, 2);
+  assert.equal(PUMPKIN_MIN_TARGET, 1.5);
   const initial = createPumpkinContract(100, 2);
   assert.ok(1 - initial.crashCurve.openingSurvival <= .25);
   assert.equal(initial.baseRtp, pumpkinContractBaseRtp(2));
@@ -291,7 +290,7 @@ test("locks one pumpkin stake across three consecutive successful rounds", () =>
   assert.equal(third.contract.active, false);
   assert.equal(settlePumpkinCrash(second.contract).active, false);
 
-  for (const target of [1.01, 1.5, 2, 2.5, PUMPKIN_MAX_TARGET]) {
+  for (const target of [1.01, 1.5, 2, 2.5]) {
     const baseRtp = pumpkinContractBaseRtp(target);
     assert.ok(Math.abs(expectedPumpkinContractReturn(100, target, baseRtp) / 100 - CORE_RTP) < 1e-12);
   }
@@ -325,6 +324,20 @@ test("keeps chili and pumpkin manual while allowing an optional configured auto 
   assert.match(source, /ticket\.autoCash \? Math\.max\(ticket\.pumpkinContract\.target, ticket\.autoCash\) : null/);
   assert.match(source, /AUTO CASH OUT \$\{fixedManualContract/);
   assert.doesNotMatch(source, /特效展示模式已開啟|展示模式會覆寫角色機率/);
+});
+
+test("keeps the mushroom contract jackpot simple and hidden until settlement", () => {
+  const hit = duoRuntimeFromRolls(["pumpkin", "mushroom"], { mushroom: 0 });
+  const miss = duoRuntimeFromRolls(["pumpkin", "mushroom"], { mushroom: .99 });
+  assert.equal(hit.factor, 4);
+  assert.equal(miss.factor, 1);
+  assert.equal(hit.expectedFactor, 1.45);
+  assert.equal(miss.expectedFactor, 1.45);
+
+  const hitContract = createPumpkinContract(100, 1.5, { stages: 2, factor: hit.factor, expectedFactor: hit.expectedFactor, ruleKey: hit.key });
+  const missContract = createPumpkinContract(100, 1.5, { stages: 2, factor: miss.factor, expectedFactor: miss.expectedFactor, ruleKey: miss.key });
+  assert.equal(settlePumpkinCashout(settlePumpkinCashout(hitContract, 1.5).contract, 1.5).payout, 1200);
+  assert.equal(settlePumpkinCashout(settlePumpkinCashout(missContract, 1.5).contract, 1.5).payout, 300);
 });
 
 test("removes the obsolete pumpkin refund label", async () => {
@@ -412,7 +425,7 @@ test("calibrates all six single-role and 21 unordered two-role VI curves to the 
       const runtime = duoRuntimeFromRolls(pair, { target: .5, peapodTarget: .5, peapodPrize: .5 });
       if (runtime.rule.kind === "contract") {
         const target = runtime.contractTarget ?? 2;
-        const contracts = pair.map(() => createPumpkinContract(100, target, { stages: runtime.rule.stages, factor: runtime.factor }));
+        const contracts = pair.map(() => createPumpkinContract(100, target, { stages: runtime.rule.stages, factor: runtime.factor, expectedFactor: runtime.expectedFactor }));
         const baseRtp = calibratePumpkinContracts(contracts);
         const expected = contracts.reduce((sum, contract) => sum + expectedPumpkinContractReturn(100, target, baseRtp, contract), 0);
         assert.ok(Math.abs(expected / 200 - CORE_RTP) < 1e-12);
@@ -566,6 +579,19 @@ test("caps the tuned instant-bust concentration while keeping each core curve at
     const curve = calibrateRoundCrashCurve(wagers);
     assert.ok(1 - curve.openingSurvival <= .25 + 1e-9);
     assert.ok(expectedRoundReturnForCurve(wagers, curve) <= CORE_RTP * wagers.reduce((sum, wager) => sum + wager.stake, 0) + 1e-9);
+  }
+
+  for (const target of [1.5, 2, 10, 50, 99]) {
+    for (const [roles, stages, factor, expectedFactor] of [
+      [["pumpkin", "pumpkin"], 3, 3, 3],
+      [["pumpkin", "mushroom"], 2, 1, 1.45],
+    ]) {
+      const contracts = roles.map(() => createPumpkinContract(1, target, { stages, factor, expectedFactor }));
+      const curve = calibratePumpkinCrashCurve(contracts);
+      const expected = contracts.reduce((sum, contract) => sum + expectedPumpkinContractReturnForCurve(1, target, curve, contract), 0);
+      assert.ok(1 - curve.openingSurvival <= .25 + 1e-9);
+      assert.ok(Math.abs(expected / contracts.length - CORE_RTP) < 1e-9);
+    }
   }
 });
 

@@ -1,8 +1,7 @@
 export const TARGET_RTP = 0.96;
 export const CORE_RTP = 0.92;
 export const MAX_SETTLEMENT_MULTIPLIER = 99;
-export const PUMPKIN_MIN_TARGET = 2;
-export const PUMPKIN_MAX_TARGET = 2.51;
+export const PUMPKIN_MIN_TARGET = 1.5;
 export const PEAPOD_THRESHOLDS = Object.freeze([2, 3, 4, 5]);
 const CURVE_START = 1.01;
 const MAX_CURVE_EXPONENT = 64;
@@ -38,12 +37,12 @@ const REWARD_PROFILES = Object.freeze({
 export const DUO_RULES = Object.freeze({
   "potato|potato": { title: "雙薯早收", kind: "chance", chance: .3, factor: 1.7, max: 2, summary: "2×前 Cash Out：30%機率獎金×1.7" },
   "chili|chili": { title: "雙辣追高", kind: "chance", chance: .38, factor: 1.8, min: 5, summary: "5×後 Cash Out：38%機率獎金×1.8" },
-  "pumpkin|pumpkin": { title: "南瓜三連關", kind: "contract", stages: 3, factor: 3, targetMode: "selected", summary: "鎖定下注；連過3局：總獎金×3" },
+  "pumpkin|pumpkin": { title: "南瓜三連關", kind: "contract", stages: 3, factor: 3, targetMode: "selected", summary: "自選1.5×以上目標，連過3局：總獎金×3" },
   "tomato|tomato": { title: "雙茄收成", kind: "auto", chance: .15, factor: 2.5, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：15%機率獎金×2.5" },
   "peapod|peapod": { title: "雙豆驚喜", kind: "reveal", chance: .28, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "抽2–5×目標與獎金倍數；達標後28%機率觸發" },
   "mushroom|mushroom": { title: "雙菇頭獎", kind: "chance", chance: .05, factor: 5, summary: "Cash Out：5%機率獎金×5" },
   "potato|chili": { title: "辣味升級", kind: "chance", chance: .35, factor: 1.8, min: 4, summary: "4×後 Cash Out：35%機率獎金×1.8" },
-  "potato|pumpkin": { title: "早收三連關", kind: "contract", stages: 3, factor: 3, targetMode: "selected", max: 2, summary: "鎖定下注；2×前 Cash Out，連過3局：總獎金×3" },
+  "potato|pumpkin": { title: "快速二連關", kind: "contract", stages: 2, factor: 2, targetMode: "fixed", target: 1.5, summary: "固定1.5×目標，連過2局：總獎金×2" },
   "potato|tomato": { title: "快速收成", kind: "auto", chance: .15, factor: 2.5, autoMin: 1.5, autoMax: 3, summary: "各抽1.5–3×自動 Cash Out：15%機率獎金×2.5" },
   "potato|peapod": { title: "早收驚喜", kind: "reveal", chance: .22, thresholds: [2, 3, 4], prizeProfile: "pea", summary: "抽2–4×目標與獎金倍數；達標後22%機率觸發" },
   "potato|mushroom": { title: "早收頭獎", kind: "chance", chance: .05, factor: 5, max: 2, summary: "2×前 Cash Out：5%機率獎金×5" },
@@ -53,7 +52,7 @@ export const DUO_RULES = Object.freeze({
   "chili|mushroom": { title: "極限頭獎", kind: "chance", chance: .06, factor: 6, min: 5, summary: "5×後 Cash Out：6%機率獎金×6" },
   "pumpkin|tomato": { title: "收成二連關", kind: "contract", stages: 2, factor: 3.2, targetMode: "auto", autoMin: 2, autoMax: 5, summary: "鎖定下注；各抽2–5×自動 Cash Out，連過2局：總獎金×3.2" },
   "pumpkin|peapod": { title: "驚喜二連關", kind: "contract", stages: 2, targetMode: "reveal", thresholds: [2, 3, 4, 5], prizeProfile: "pumpkinPea", summary: "鎖定下注；抽2–5×目標，連過2局：總獎金×2.5／×4／×6／×8" },
-  "pumpkin|mushroom": { title: "頭獎三連關", kind: "contract", stages: 3, factor: 3.2, targetMode: "selected", summary: "鎖定下注；連過3局：總獎金×3.2" },
+  "pumpkin|mushroom": { title: "蘑菇頭獎關", kind: "contract", stages: 2, chance: .15, factor: 4, baseFactor: 1, targetMode: "selected", summary: "自選1.5×以上目標，連過2局：15%獎金×4，未中照領" },
   "tomato|peapod": { title: "驚喜自動收成", kind: "reveal-auto", chance: .22, thresholds: [2, 3, 4, 5], prizeProfile: "pea", summary: "各抽2–5×自動 Cash Out：22%機率獎金×隨機倍數" },
   "tomato|mushroom": { title: "頭獎自動收成", kind: "auto", chance: .06, factor: 6, autoMin: 2, autoMax: 5, summary: "各抽2–5×自動 Cash Out：6%機率獎金×6" },
   "peapod|mushroom": { title: "豆菇大驚喜", kind: "reveal", chance: .12, thresholds: [2, 3, 4, 5], prizeProfile: "peaMushroom", summary: "抽2–5×目標；達標後12%機率獎金×3／×5／×8" },
@@ -117,11 +116,15 @@ export function duoRuntimeFromRolls(roleIds, rolls = {}) {
   const autoTarget = Number.isFinite(rule.autoMin)
     ? Math.round((rule.autoMin + clampUnit(rolls.target) * (rule.autoMax - rule.autoMin)) * 100) / 100
     : null;
+  const baseFactor = rule.baseFactor ?? 1;
+  const chanceContract = rule.kind === "contract" && Number.isFinite(rule.chance);
+  const regularFactor = rule.prizeProfile ? pickWeighted(rule.prizeProfile, rolls.peapodPrize) : rule.factor ?? 1;
   return {
     key: pairKey(normalizedRolePair(roleIds[0], roleIds)),
     rule,
     threshold,
-    factor: rule.prizeProfile ? pickWeighted(rule.prizeProfile, rolls.peapodPrize) : rule.factor ?? 1,
+    factor: chanceContract && clampUnit(rolls.mushroom) >= rule.chance ? baseFactor : regularFactor,
+    expectedFactor: chanceContract ? baseFactor + rule.chance * (regularFactor - baseFactor) : regularFactor,
     autoTarget,
     contractTarget: rule.targetMode === "fixed" ? rule.target : rule.targetMode === "auto" ? autoTarget : rule.targetMode === "reveal" ? threshold : null,
   };
@@ -203,6 +206,7 @@ export function peapodPayoutFactorFromUnit(unit) {
 }
 
 export function createPumpkinContract(stake, target, options = {}) {
+  const factor = Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor);
   const contract = {
     active: true,
     stake: Math.max(0, stake),
@@ -210,7 +214,8 @@ export function createPumpkinContract(stake, target, options = {}) {
     clears: 0,
     multipliers: [],
     stages: Math.max(1, Math.round(options.stages ?? ROLE_MATH.pumpkin.stages)),
-    factor: Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor),
+    factor,
+    expectedFactor: Math.max(1, options.expectedFactor ?? factor),
     ruleKey: options.ruleKey ?? "pumpkin",
     poolAssisted: false,
     poolReserved: 0,
@@ -246,13 +251,13 @@ export function settlePumpkinCrash(contract) {
 
 export function pumpkinContractBaseRtp(target, options = {}) {
   const stages = Math.max(1, Math.round(options.stages ?? ROLE_MATH.pumpkin.stages));
-  const factor = Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor);
+  const factor = Math.max(1, options.expectedFactor ?? options.factor ?? ROLE_MATH.pumpkin.finalFactor);
   return Math.min(CORE_RTP, (CORE_RTP * safeTarget(target) ** (stages - 1) / (stages * factor)) ** (1 / stages));
 }
 
 export function expectedPumpkinContractReturn(stake, target, baseRtp, options = {}) {
   const stages = Math.max(1, Math.round(options.stages ?? ROLE_MATH.pumpkin.stages));
-  const factor = Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor);
+  const factor = Math.max(1, options.expectedFactor ?? options.factor ?? ROLE_MATH.pumpkin.finalFactor);
   const safeContractTarget = safeTarget(target);
   return Math.max(0, stake) * stages * factor * safeContractTarget * survivalAt(safeContractTarget, baseRtp) ** stages;
 }
@@ -265,7 +270,7 @@ export function calibratePumpkinContracts(contracts) {
   if (active.every((contract) => Math.max(1, Math.round(contract.stages ?? ROLE_MATH.pumpkin.stages)) === sharedStages)) {
     const coefficient = active.reduce((sum, contract) => {
       const target = safeTarget(contract.target);
-      const factor = Math.max(1, contract.factor ?? ROLE_MATH.pumpkin.finalFactor);
+      const factor = Math.max(1, contract.expectedFactor ?? contract.factor ?? ROLE_MATH.pumpkin.finalFactor);
       return sum + contract.stake * sharedStages * factor * target ** (1 - sharedStages);
     }, 0);
     return Math.min(TARGET_RTP, Math.max(Number.EPSILON, (targetReturn / coefficient) ** (1 / sharedStages)));
@@ -274,7 +279,7 @@ export function calibratePumpkinContracts(contracts) {
     contract.stake,
     contract.target,
     baseRtp,
-    { stages: contract.stages, factor: contract.factor },
+    { stages: contract.stages, factor: contract.factor, expectedFactor: contract.expectedFactor },
   ), 0);
   if (expectedReturn(CORE_RTP) <= targetReturn) return CORE_RTP;
   let low = Number.EPSILON;
@@ -289,7 +294,7 @@ export function calibratePumpkinContracts(contracts) {
 
 export function expectedPumpkinContractReturnForCurve(stake, target, curve, options = {}) {
   const stages = Math.max(1, Math.round(options.stages ?? ROLE_MATH.pumpkin.stages));
-  const factor = Math.max(1, options.factor ?? ROLE_MATH.pumpkin.finalFactor);
+  const factor = Math.max(1, options.expectedFactor ?? options.factor ?? ROLE_MATH.pumpkin.finalFactor);
   const safeContractTarget = safeTarget(target);
   return Math.max(0, stake) * stages * factor * safeContractTarget * survivalAtCurve(safeContractTarget, curve) ** stages;
 }
@@ -302,7 +307,7 @@ export function calibratePumpkinCrashCurve(contracts) {
     contract.stake,
     contract.target,
     curve,
-    { stages: contract.stages, factor: contract.factor },
+    { stages: contract.stages, factor: contract.factor, expectedFactor: contract.expectedFactor },
   ), 0));
 }
 

@@ -18,7 +18,6 @@ import {
   duoRuntimeForTicket,
   MAX_SETTLEMENT_MULTIPLIER,
   PUMPKIN_MIN_TARGET,
-  PUMPKIN_MAX_TARGET,
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
   settleCrashRole,
@@ -50,6 +49,7 @@ type PumpkinContract = {
   multipliers: number[];
   stages: number;
   factor: number;
+  expectedFactor: number;
   ruleKey: string;
   baseRtp: number;
   crashCurve: CrashCurve;
@@ -128,7 +128,7 @@ const idleSafeRun: SafeRun = { active: false, extended: false, cashAt: 0, natura
 const roles: Role[] = [
   { id: "potato", name: "馬鈴薯", short: "2×前 Cash Out：22%機率獎金×1.8", detail: "2×前 Cash Out：22%機率獎金×1.8", accent: "#f0b55b" },
   { id: "chili", name: "辣椒", short: "5×後 Cash Out：26%機率獎金×1.8", detail: "5×後 Cash Out：26%機率獎金×1.8", accent: "#ff5a4f" },
-  { id: "pumpkin", name: "南瓜", short: "鎖定下注；連過3局：總獎金×2.5", detail: "鎖定下注；連過3局：總獎金×2.5", accent: "#ff9d3d" },
+  { id: "pumpkin", name: "南瓜", short: "自選1.5×以上目標，連過3局：總獎金×2.5", detail: "自選1.5×以上目標，連過3局：總獎金×2.5", accent: "#ff9d3d" },
   { id: "tomato", name: "番茄", short: "2–5×自動 Cash Out：10%機率獎金×2.5", detail: "2–5×自動 Cash Out：10%機率獎金×2.5", accent: "#ff6358" },
   { id: "peapod", name: "豌豆莢", short: "開跑抽2–5×目標與獎金倍數；達標後20%機率觸發", detail: "開跑抽2–5×目標與獎金倍數；達標後20%機率觸發", accent: "#70d858" },
   { id: "mushroom", name: "蘑菇", short: "Cash Out：4%機率獎金×6", detail: "Cash Out：4%機率獎金×6", accent: "#8a5abb" },
@@ -149,7 +149,7 @@ const forcedAbilityRolls: AbilityRolls = {
 const roleById = Object.fromEntries(roles.map((role) => [role.id, role])) as Record<RoleId, Role>;
 
 function emptyContract(): PumpkinContract {
-  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 2.5, ruleKey: "pumpkin", baseRtp: CORE_RTP, crashCurve: defaultCrashCurve(), poolAssisted: false, poolReserved: 0 };
+  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 2.5, expectedFactor: 2.5, ruleKey: "pumpkin", baseRtp: CORE_RTP, crashCurve: defaultCrashCurve(), poolAssisted: false, poolReserved: 0 };
 }
 
 function runtimeForTicket(roleIds: RoleId[], spec: RoundSpec, ticketIndex: number, showcase = false) {
@@ -289,7 +289,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
     const runtime = runtimeForTicket(roleIds, spec, placedIndexes[0]);
     if (runtime?.rule.kind === "contract") {
       const targetSourceIndex = placedIndexes.find((index) => tickets[index].roleId === "pumpkin") ?? placedIndexes[0];
-      const selectedTarget = Math.max(PUMPKIN_MIN_TARGET, Math.min(runtime.rule.max ?? PUMPKIN_MAX_TARGET, tickets[targetSourceIndex].autoCashTarget));
+      const selectedTarget = Math.max(PUMPKIN_MIN_TARGET, Math.min(MAX_SETTLEMENT_MULTIPLIER, tickets[targetSourceIndex].autoCashTarget));
       const configured = tickets.map((ticket, index) => {
         if (!placedIndexes.includes(index)) return ticket;
         const ticketRuntime = runtimeForTicket(roleIds, spec, index);
@@ -301,6 +301,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
             : createPumpkinContract(ticket.amount, target, {
                 stages: runtime.rule.stages,
                 factor: runtime.factor,
+                expectedFactor: runtime.expectedFactor,
                 ruleKey: runtime.key,
               }),
         };
@@ -322,7 +323,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
         ...ticket,
         pumpkinContract: ticket.pumpkinContract.active && ticket.pumpkinContract.ruleKey === "pumpkin"
           ? ticket.pumpkinContract
-          : createPumpkinContract(ticket.amount, Math.max(PUMPKIN_MIN_TARGET, Math.min(PUMPKIN_MAX_TARGET, ticket.autoCashTarget))),
+          : createPumpkinContract(ticket.amount, Math.max(PUMPKIN_MIN_TARGET, Math.min(MAX_SETTLEMENT_MULTIPLIER, ticket.autoCashTarget))),
       };
     });
   }
@@ -715,8 +716,12 @@ export default function GameClient() {
       if (!challenge.accepted) return;
       const cleared = challenge.complete ? contract.stages : challenge.contract.clears;
       const contractTitle = duoRuleFor(roundRoleIds)?.title ?? "南瓜三連關";
+      const mushroomJackpot = contract.ruleKey === "pumpkin|mushroom";
+      const jackpotHit = mushroomJackpot && contract.factor > 1;
       const note = challenge.complete
-        ? `${contractTitle}完成：總獎金×${contract.factor}`
+        ? mushroomJackpot
+          ? jackpotHit ? `${contractTitle}：15%頭獎×${contract.factor}` : `${contractTitle}：未中頭獎，照領總獎金`
+          : `${contractTitle}完成：總獎金×${contract.factor}`
         : `${contractTitle}已通過${cleared}/${contract.stages}局`;
       const next = currentTickets.map((ticket, ticketIndex) => ticketIndex === index ? {
         ...ticket,
@@ -737,7 +742,7 @@ export default function GameClient() {
       ticketsRef.current = next;
       setTickets(next);
       activateSafeRun(next);
-      triggerSkillFx(current.roleId, index, challenge.complete ? `${contractTitle} ×${contract.factor}！` : `${contractTitle} ${cleared}/${contract.stages}！`);
+      triggerSkillFx(jackpotHit ? "mushroom" : current.roleId, index, challenge.complete ? jackpotHit ? `蘑菇頭獎 ×${contract.factor}！` : `${contractTitle}完成！` : `${contractTitle} ${cleared}/${contract.stages}！`);
       showToast(
         challenge.complete ? `${contractTitle}完成！` : `已通過${cleared}/${contract.stages}局`,
         challenge.complete ? `贏得 ${money(challenge.payout)}` : `已記錄${at.toFixed(2)}×｜下注保持鎖定`,
@@ -1201,7 +1206,7 @@ export default function GameClient() {
     if (!canEditUnplacedTicket(ticket) || usesTomatoAuto(ticket)) return;
     const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
     const minTarget = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
-    const maxTarget = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+    const maxTarget = MAX_SETTLEMENT_MULTIPLIER;
     const target = normalizeAutoCashInput(ticket.autoCashTarget, minTarget, maxTarget, minTarget);
     updateTicket(ticketIndex, (current) => ({ ...current, autoCashTarget: target, autoCash: current.autoCash ? null : target }));
     setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex ? target.toFixed(2) : value));
@@ -1213,7 +1218,7 @@ export default function GameClient() {
     if (!canEditUnplacedTicket(ticket)) return;
     const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
     const minTarget = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
-    const maxTarget = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+    const maxTarget = MAX_SETTLEMENT_MULTIPLIER;
     const target = normalizeAutoCashInput(nextValue, minTarget, maxTarget, ticket.autoCashTarget);
     updateTicket(ticketIndex, (current) => ({
       ...current,
@@ -1227,7 +1232,7 @@ export default function GameClient() {
     const ticket = ticketsRef.current[ticketIndex];
     const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
     const minTarget = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
-    const maxTarget = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+    const maxTarget = MAX_SETTLEMENT_MULTIPLIER;
     changeAutoCashTarget(ticketIndex, normalizeAutoCashInput(autoCashInputs[ticketIndex], minTarget, maxTarget, ticket.autoCashTarget));
   };
 
@@ -1450,7 +1455,7 @@ export default function GameClient() {
             const challengeTargetEditable = !duoContract || selectedDuoRule?.targetMode === "selected";
             const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
             const minAutoCash = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
-            const maxAutoCash = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+            const maxAutoCash = MAX_SETTLEMENT_MULTIPLIER;
             const roleDetail = duoActive || duoPreviewActive
               ? duoCardDetail(ticket, ticketIndex)
               : ticket.roleId === "peapod"

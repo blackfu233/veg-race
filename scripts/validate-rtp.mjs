@@ -123,6 +123,7 @@ function contractSetup(roleIdsForRun, rollsByTicket) {
   return runtimes.map((runtime) => createPumpkinContract(1, runtime.contractTarget ?? 2, {
     stages: runtime.rule.stages,
     factor: runtime.factor,
+    expectedFactor: runtime.expectedFactor,
     ruleKey: runtime.key,
   }));
 }
