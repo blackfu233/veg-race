@@ -11,8 +11,6 @@ import {
   duoRuntimeForTicket,
   expectedPumpkinContractReturnForCurve,
   expectedRoundReturnForCurve,
-  peapodPayoutFactorFromUnit,
-  peapodThresholdFromUnit,
   ROLE_NAMES,
   settlePumpkinCashout,
   settlePumpkinCrash,
@@ -20,10 +18,10 @@ import {
   TARGET_RTP,
 } from "../app/rtp-engine.mjs";
 
-const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
-const abilityKeys = [...roleIds, "target", "peapodTarget", "peapodPrize"];
+const roleIds = ["potato", "chili", "pumpkin", "tomato", "pepper", "mushroom"];
+const abilityKeys = [...roleIds, "target", "dashPrize"];
 const sampleCount = Number.parseInt(process.argv[2] ?? "1000000", 10);
-const outputArgument = process.argv[3] ?? "outputs/rtp-core-all-combinations-v37.json";
+const outputArgument = process.argv[3] ?? "outputs/rtp-core-all-combinations-v39.json";
 const outputPath = outputArgument === "-" ? null : path.resolve(outputArgument);
 const csvPath = outputPath?.replace(/\.json$/i, ".csv") ?? null;
 
@@ -47,29 +45,27 @@ function randomRolls(rng) {
 
 function singleTarget(roleId, rolls) {
   if (roleId === "potato") return 1.99;
-  if (roleId === "chili") return 5;
+  if (roleId === "chili") return 1.01;
   if (roleId === "tomato") return Math.round((2 + rolls.target * 3) * 100) / 100;
-  if (roleId === "peapod") return peapodThresholdFromUnit(rolls.peapodTarget);
+  if (roleId === "pepper") return 5;
+  if (roleId === "mushroom") return 1.5;
   return 2;
 }
 
 function pairTarget(runtime) {
-  if (runtime.rule.kind === "auto") return runtime.autoTarget;
-  if (["reveal", "reveal-auto"].includes(runtime.rule.kind)) return runtime.threshold;
+  if (runtime.autoTarget !== null) return runtime.autoTarget;
   if (Number.isFinite(runtime.rule.min)) return runtime.rule.min;
+  if (runtime.rule.kind === "dash" && Number.isFinite(runtime.rule.max)) return 1.01;
   if (Number.isFinite(runtime.rule.max)) return Math.round((runtime.rule.max - .01) * 100) / 100;
   return 2;
 }
 
-function wagerFor(roleId, target, runtime, rolls) {
+function wagerFor(roleId, target, runtime) {
   return {
     roleId,
     stake: 1,
     target,
-    manual: runtime ? !["auto", "reveal-auto"].includes(runtime.rule.kind) : roleId !== "tomato",
-    peapodThreshold: roleId === "peapod" ? peapodThresholdFromUnit(rolls.peapodTarget) : undefined,
-    peapodFactor: roleId === "peapod" ? peapodPayoutFactorFromUnit(rolls.peapodPrize) : undefined,
-    duoThreshold: runtime?.threshold,
+    manual: runtime ? runtime.autoTarget === null : roleId !== "tomato",
     duoFactor: runtime?.factor,
   };
 }
@@ -79,9 +75,6 @@ function cacheKey(wagers) {
     wager.roleId,
     wager.target,
     wager.manual ? 1 : 0,
-    wager.peapodThreshold ?? "",
-    wager.peapodFactor ?? "",
-    wager.duoThreshold ?? "",
     wager.duoFactor ?? "",
   ].join(":" )).join("|");
 }
@@ -93,7 +86,7 @@ function sampleRegular(roleIdsForRun, rollsByTicket, rng, curveCache) {
   const targets = roleIdsForRun.map((roleId, index) => runtimes[index]
     ? pairTarget(runtimes[index])
     : singleTarget(roleId, rollsByTicket[index]));
-  const wagers = roleIdsForRun.map((roleId, index) => wagerFor(roleId, targets[index], runtimes[index], rollsByTicket[index]));
+  const wagers = roleIdsForRun.map((roleId, index) => wagerFor(roleId, targets[index], runtimes[index]));
   const key = cacheKey(wagers);
   const crashCurve = curveCache.get(key) ?? calibrateRoundCrashCurve(wagers);
   curveCache.set(key, crashCurve);
@@ -106,11 +99,7 @@ function sampleRegular(roleIdsForRun, rollsByTicket, rng, curveCache) {
       wager.target,
       rollsByTicket[index],
       roleIdsForRun,
-      {
-        peapodThreshold: wager.peapodThreshold,
-        peapodFactor: wager.peapodFactor,
-        duoRuntime: runtimes[index] ?? undefined,
-      },
+      { duoRuntime: runtimes[index] ?? undefined },
     ).payout;
   }, 0);
   return { payout, expectedPayout: expectedRoundReturnForCurve(wagers, crashCurve), crashCurve, rounds: 1 };
@@ -274,7 +263,7 @@ const [engineSource, scriptSource] = await Promise.all([
 ]);
 const report = {
   schema: "veggie-dash-rtp-validation/6",
-  variant: "six-role-shaped-curve-v37-core",
+  variant: "six-role-dash-pepper-v39-core",
   generatedAt: new Date().toISOString(),
   coreTargetRtp: CORE_RTP,
   longTermTargetRtp: TARGET_RTP,

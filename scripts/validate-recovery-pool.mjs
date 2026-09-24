@@ -7,8 +7,6 @@ import {
   createPumpkinContract,
   describeDuoPair,
   duoRuntimeForTicket,
-  peapodPayoutFactorFromUnit,
-  peapodThresholdFromUnit,
   ROLE_NAMES,
   settlePumpkinCashout,
   settlePumpkinCrash,
@@ -17,8 +15,8 @@ import {
 } from "../app/rtp-engine.mjs";
 import { createRecoveryPool, planRecoveryRelease, RECOVERY_POOL_CONFIG, reserveRecoveryPayout, settleRecoveryPool, settleRecoveryReservation } from "../app/recovery-pool.mjs";
 
-const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
-const abilityKeys = [...roleIds, "target", "peapodTarget", "peapodPrize"];
+const roleIds = ["potato", "chili", "pumpkin", "tomato", "pepper", "mushroom"];
+const abilityKeys = [...roleIds, "target", "dashPrize"];
 const filterKey = process.argv.find((value) => value.startsWith("--filter="))?.slice("--filter=".length) ?? null;
 const seedTag = process.argv.find((value) => value.startsWith("--seed-tag="))?.slice("--seed-tag=".length) ?? "default";
 const numericArgs = process.argv.slice(2).filter((value) => /^\d+(\.\d+)?$/.test(value));
@@ -43,21 +41,22 @@ function rolls(rng) {
 }
 
 function forced(source) {
-  return { ...source, potato: 0, chili: 0, tomato: 0, peapod: 0, mushroom: 0 };
+  return { ...source, potato: 0, chili: 0, tomato: 0, pepper: 0, mushroom: 0 };
 }
 
 function singleTarget(roleId, ticketRolls) {
   if (roleId === "potato") return 1.99;
-  if (roleId === "chili") return 5;
+  if (roleId === "chili") return 1.01;
   if (roleId === "tomato") return Math.round((2 + ticketRolls.target * 3) * 100) / 100;
-  if (roleId === "peapod") return peapodThresholdFromUnit(ticketRolls.peapodTarget);
+  if (roleId === "pepper") return 5;
+  if (roleId === "mushroom") return 1.5;
   return 2;
 }
 
 function targetFor(runtime) {
-  if (runtime.rule.kind === "auto") return runtime.autoTarget;
-  if (["reveal", "reveal-auto"].includes(runtime.rule.kind)) return runtime.threshold;
+  if (runtime.autoTarget !== null) return runtime.autoTarget;
   if (Number.isFinite(runtime.rule.min)) return runtime.rule.min;
+  if (runtime.rule.kind === "dash" && Number.isFinite(runtime.rule.max)) return 1.01;
   if (Number.isFinite(runtime.rule.max)) return Math.round((runtime.rule.max - .01) * 100) / 100;
   return 2;
 }
@@ -70,9 +69,6 @@ function regularSetup(selectedRoles, ticketRolls) {
     stake: 1,
     target: targets[index],
     manual: false,
-    peapodThreshold: roleId === "peapod" ? peapodThresholdFromUnit(ticketRolls[index].peapodTarget) : undefined,
-    peapodFactor: roleId === "peapod" ? peapodPayoutFactorFromUnit(ticketRolls[index].peapodPrize) : undefined,
-    duoThreshold: runtimes[index]?.threshold,
     duoFactor: runtimes[index]?.factor,
   }));
   return { runtimes, targets, wagers, crashCurve: calibrateRoundCrashCurve(wagers) };
@@ -85,11 +81,7 @@ function regularPayout(selectedRoles, setup, ticketRolls, crashPoint) {
     setup.targets[index],
     ticketRolls[index],
     selectedRoles,
-    {
-      peapodThreshold: setup.wagers[index].peapodThreshold,
-      peapodFactor: setup.wagers[index].peapodFactor,
-      duoRuntime: setup.runtimes[index] ?? undefined,
-    },
+    { duoRuntime: setup.runtimes[index] ?? undefined },
   ).payout, 0);
 }
 

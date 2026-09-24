@@ -8,7 +8,7 @@ export type RunnerRoleId =
   | "pumpkin"
   | "tomato"
   | "okra"
-  | "peapod"
+  | "pepper"
   | "corn"
   | "scallion"
   | "mushroom"
@@ -70,8 +70,8 @@ export default function CanvasRunner({
     let lastPaintedFrame = -1;
 
     Promise.all([
-      loadSprite(`/runner-sprites/${roleId}-ready.webp?v=5`),
-      loadSprite(`/runner-sprites/${roleId}-run.webp?v=5`),
+      loadSprite(`/runner-sprites/${roleId}-ready.webp?v=6`),
+      loadSprite(`/runner-sprites/${roleId}-run.webp?v=6`),
     ])
       .then(([readySprite, runSprite]) => {
         const paint = (frame: number) => {
