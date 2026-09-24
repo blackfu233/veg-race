@@ -3,19 +3,21 @@
 import Image from "next/image";
 import { CSSProperties, Fragment, useCallback, useEffect, useRef, useState } from "react";
 import CanvasRunner from "./canvas-runner";
-import { createRecoveryPool, normalizeRecoveryPool, planRecoveryRelease, recoveryCoreScale, reserveRecoveryProfit, settleRecoveryPool, settleRecoveryReservation } from "./recovery-pool.mjs";
+import { createRecoveryPool, normalizeRecoveryPool, planRecoveryRelease, reserveRecoveryPayout, settleRecoveryPool, settleRecoveryReservation } from "./recovery-pool.mjs";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket, canStartRoundEarly, isAutoCashInputDraft, normalizeAutoCashInput } from "./ticket-actions.mjs";
 import {
-  calibratePumpkinContracts,
-  calibrateRoundBaseRtp,
+  calibratePumpkinCrashCurve,
+  calibrateRoundCrashCurve,
   CORE_RTP,
-  crashPointFromUnit,
+  crashPointFromCurveUnit,
   createPumpkinContract,
   createVisualNearMiss,
+  defaultCrashCurve,
   describeDuoPair,
   duoRuleFor,
   duoRuntimeForTicket,
   MAX_SETTLEMENT_MULTIPLIER,
+  PUMPKIN_MIN_TARGET,
   PUMPKIN_MAX_TARGET,
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
@@ -50,9 +52,12 @@ type PumpkinContract = {
   factor: number;
   ruleKey: string;
   baseRtp: number;
+  crashCurve: CrashCurve;
   poolAssisted: boolean;
   poolReserved: number;
 };
+
+type CrashCurve = { openingSurvival: number; exponent: number };
 
 type Role = {
   id: RoleId;
@@ -107,6 +112,7 @@ type RoundSpec = {
   commitment: string;
   crashUnit: number;
   baseRtp: number;
+  crashCurve: CrashCurve;
   coreCrashPoint: number;
   crashPoint: number;
   nearMissUnit: number;
@@ -143,7 +149,7 @@ const forcedAbilityRolls: AbilityRolls = {
 const roleById = Object.fromEntries(roles.map((role) => [role.id, role])) as Record<RoleId, Role>;
 
 function emptyContract(): PumpkinContract {
-  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 2.5, ruleKey: "pumpkin", baseRtp: CORE_RTP, poolAssisted: false, poolReserved: 0 };
+  return { active: false, stake: 0, target: 2, clears: 0, multipliers: [], stages: 3, factor: 2.5, ruleKey: "pumpkin", baseRtp: CORE_RTP, crashCurve: defaultCrashCurve(), poolAssisted: false, poolReserved: 0 };
 }
 
 function runtimeForTicket(roleIds: RoleId[], spec: RoundSpec, ticketIndex: number, showcase = false) {
@@ -247,29 +253,30 @@ function projectedTicketPayout(ticket: Ticket, ticketIndex: number, roleIds: Rol
 function affordableRecoveryPlan(plan: RecoveryPlan, tickets: Ticket[], spec: RoundSpec, coreCrashPoint: number) {
   if (!plan.active) return plan;
   const placed = tickets.filter((ticket) => ticket.enabled && ticket.placed);
-  const totalStake = placed.reduce((sum, ticket) => sum + ticket.amount, 0);
   const contracts = placed.filter((ticket) => ticket.pumpkinContract.active);
   if (contracts.length) {
     if (contracts.length !== placed.length || contracts.some((ticket) => ticket.pumpkinContract.poolAssisted)) return disabledRecoveryPlan(plan);
     const unsupportedManualContract = contracts.some((ticket) => ticket.pumpkinContract.ruleKey === "chili|pumpkin" && !ticket.autoCash);
-    const requiredProfit = contracts.reduce((sum, ticket) => {
+    const requiredPayout = contracts.reduce((sum, ticket) => {
       const contract = ticket.pumpkinContract;
       const remainingStages = Math.max(0, contract.stages - contract.clears);
       const finalPayout = contract.stake * (contract.multipliers.reduce((subtotal, value) => subtotal + value, 0) + remainingStages * contract.target) * contract.factor;
-      return sum + Math.max(0, finalPayout - contract.stake);
+      return sum + finalPayout;
     }, 0);
-    if (unsupportedManualContract || requiredProfit > plan.available + 1e-9) return disabledRecoveryPlan(plan);
+    if (unsupportedManualContract || requiredPayout > plan.available + 1e-9) return disabledRecoveryPlan(plan);
     return { ...plan, mode: "crash" as const, crashFloor: Math.max(5, ...contracts.map((ticket) => ticket.pumpkinContract.target)) };
   }
   const roleIds = placed.map((ticket) => ticket.roleId);
-  const projectedProfit = (cap: number, forceAbility: boolean) => Math.max(0, placed.reduce((sum, ticket, index) => sum + projectedTicketPayout(ticket, index, roleIds, spec, cap, forceAbility), 0) - totalStake);
-  if (plan.mode === "ability") return projectedProfit(coreCrashPoint, true) <= plan.available + 1e-9 ? plan : disabledRecoveryPlan(plan);
-  if (projectedProfit(5, false) > plan.available + 1e-9) return disabledRecoveryPlan(plan);
+  const projectedPayout = (cap: number, forceAbility: boolean) => placed.reduce((sum, ticket, index) => sum + projectedTicketPayout(ticket, index, roleIds, spec, cap, forceAbility), 0);
+  const coreProjectedPayout = projectedPayout(coreCrashPoint, false);
+  const requiredPoolPayout = (cap: number, forceAbility: boolean) => Math.max(0, projectedPayout(cap, forceAbility) - coreProjectedPayout);
+  if (plan.mode === "ability") return requiredPoolPayout(coreCrashPoint, true) <= plan.available + 1e-9 ? plan : disabledRecoveryPlan(plan);
+  if (requiredPoolPayout(5, false) > plan.available + 1e-9) return disabledRecoveryPlan(plan);
   let low = 5;
   let high = plan.crashFloor;
   for (let step = 0; step < 20; step += 1) {
     const midpoint = (low + high) / 2;
-    if (projectedProfit(midpoint, false) <= plan.available + 1e-9) low = midpoint;
+    if (requiredPoolPayout(midpoint, false) <= plan.available + 1e-9) low = midpoint;
     else high = midpoint;
   }
   return { ...plan, crashFloor: Math.floor(low * 100) / 100 };
@@ -282,7 +289,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
     const runtime = runtimeForTicket(roleIds, spec, placedIndexes[0]);
     if (runtime?.rule.kind === "contract") {
       const targetSourceIndex = placedIndexes.find((index) => tickets[index].roleId === "pumpkin") ?? placedIndexes[0];
-      const selectedTarget = Math.min(runtime.rule.max ? runtime.rule.max - .01 : PUMPKIN_MAX_TARGET, tickets[targetSourceIndex].autoCashTarget);
+      const selectedTarget = Math.max(PUMPKIN_MIN_TARGET, Math.min(runtime.rule.max ?? PUMPKIN_MAX_TARGET, tickets[targetSourceIndex].autoCashTarget));
       const configured = tickets.map((ticket, index) => {
         if (!placedIndexes.includes(index)) return ticket;
         const ticketRuntime = runtimeForTicket(roleIds, spec, index);
@@ -299,9 +306,9 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
         };
       });
       const activeContracts = configured.flatMap((ticket, index) => placedIndexes.includes(index) ? [ticket.pumpkinContract] : []);
-      const baseRtp = calibratePumpkinContracts(activeContracts);
+      const crashCurve = calibratePumpkinCrashCurve(activeContracts);
       return configured.map((ticket, index) => placedIndexes.includes(index)
-        ? { ...ticket, pumpkinContract: { ...ticket.pumpkinContract, baseRtp } }
+        ? { ...ticket, pumpkinContract: { ...ticket.pumpkinContract, crashCurve } }
         : ticket);
     }
     return tickets.map((ticket, index) => placedIndexes.includes(index) ? { ...ticket, pumpkinContract: emptyContract() } : ticket);
@@ -315,7 +322,7 @@ function applyLockedAbilitySetup(tickets: Ticket[], spec: RoundSpec) {
         ...ticket,
         pumpkinContract: ticket.pumpkinContract.active && ticket.pumpkinContract.ruleKey === "pumpkin"
           ? ticket.pumpkinContract
-          : createPumpkinContract(ticket.amount, Math.min(PUMPKIN_MAX_TARGET, ticket.autoCashTarget)),
+          : createPumpkinContract(ticket.amount, Math.max(PUMPKIN_MIN_TARGET, Math.min(PUMPKIN_MAX_TARGET, ticket.autoCashTarget))),
       };
     });
   }
@@ -366,8 +373,9 @@ async function makeRoundSpec(): Promise<RoundSpec> {
     commitment,
     crashUnit,
     baseRtp: CORE_RTP,
-    coreCrashPoint: crashPointFromUnit(crashUnit),
-    crashPoint: crashPointFromUnit(crashUnit),
+    crashCurve: defaultCrashCurve(),
+    coreCrashPoint: crashPointFromCurveUnit(crashUnit),
+    crashPoint: crashPointFromCurveUnit(crashUnit),
     nearMissUnit,
     poolThresholdUnit: poolUnit(poolThresholdHash),
     poolModeUnit: poolUnit(poolModeHash),
@@ -692,10 +700,10 @@ export default function GameClient() {
         tone(210);
         return;
       }
-      const newlyAssisted = Boolean(spec?.recoveryPlan.active && !contract.poolAssisted && at > spec.coreCrashPoint + 1e-9);
+      const newlyAssisted = Boolean(spec?.recoveryPlan.active && !contract.poolAssisted && spec.coreCrashPoint + 1e-9 < contract.target && at + 1e-9 >= contract.target);
       const remainingStages = Math.max(0, contract.stages - contract.clears);
       const finalPayout = contract.stake * (contract.multipliers.reduce((sum, value) => sum + value, 0) + remainingStages * contract.target) * contract.factor;
-      const reservation = newlyAssisted ? reserveRecoveryProfit(recoveryPoolRef.current, Math.max(0, finalPayout - contract.stake)) : null;
+      const reservation = newlyAssisted ? reserveRecoveryPayout(recoveryPoolRef.current, finalPayout) : null;
       const poolAssisted = contract.poolAssisted || Boolean(reservation?.accepted);
       const poolReserved = contract.poolReserved + (reservation?.amount ?? 0);
       if (reservation?.accepted) {
@@ -858,8 +866,8 @@ export default function GameClient() {
       ticket.payout > 0,
     ), recoveryPoolRef.current);
     const regularPoolTickets = terminalTickets.filter((ticket) => ticket.pumpkinContract.poolReserved <= 0);
-    const releasedProfit = regularPoolTickets.some((ticket) => ticket.poolAssisted)
-      ? Math.max(0, regularPoolTickets.reduce((sum, ticket) => sum + ticket.payout - ticket.amount, 0))
+    const releasedAmount = regularPoolTickets.some((ticket) => ticket.poolAssisted)
+      ? Math.max(0, regularPoolTickets.reduce((sum, ticket) => sum + ticket.payout - ticket.corePayout, 0))
       : 0;
     const spec = roundSpecRef.current;
     const releaseApplied = Boolean(spec?.recoveryPlan.active && recoveryAppliedRef.current);
@@ -868,7 +876,7 @@ export default function GameClient() {
       corePayout,
       actualPayout,
       releaseActive: releaseApplied,
-      releasedProfit,
+      releasedAmount,
       thresholdUnit: spec?.poolThresholdUnit,
       cooldownUnit: spec?.poolCooldownUnit,
       advanceCooldown: settled.some((ticket) => ticket.enabled && ticket.placed),
@@ -889,17 +897,18 @@ export default function GameClient() {
     roundStartCommittedRef.current = true;
     betDeadlineRef.current = 0;
     const currentTickets = ticketsRef.current;
-    const regularBaseRtp = calibrateRoundBaseRtp(ticketsToRtpWagers(currentTickets, currentSpec));
+    const regularCrashCurve = calibrateRoundCrashCurve(ticketsToRtpWagers(currentTickets, currentSpec));
     const activeContracts = currentTickets.flatMap((ticket) => ticket.enabled && ticket.placed && ticket.pumpkinContract.active ? [ticket.pumpkinContract] : []);
     const placedTickets = currentTickets.filter((ticket) => ticket.enabled && ticket.placed);
-    const baseRtp = (activeContracts.length ? activeContracts[0].baseRtp : regularBaseRtp) * recoveryCoreScale(placedTickets.map((ticket) => ticket.roleId));
-    const coreCrashPoint = crashPointFromUnit(currentSpec.crashUnit, baseRtp);
+    const crashCurve = activeContracts.length ? activeContracts[0].crashCurve : regularCrashCurve;
+    const coreCrashPoint = crashPointFromCurveUnit(currentSpec.crashUnit, crashCurve);
     const exposureStake = placedTickets.reduce((sum, ticket) => sum + ticket.amount, 0);
     const plannedRelease = planRecoveryRelease(recoveryPoolRef.current, exposureStake, currentSpec.poolModeUnit);
     const recoveryPlan = affordableRecoveryPlan(plannedRelease, currentTickets, currentSpec, coreCrashPoint);
     const resolvedSpec = {
       ...currentSpec,
-      baseRtp,
+      baseRtp: CORE_RTP,
+      crashCurve,
       coreCrashPoint,
       crashPoint: recoveryPlan.active && recoveryPlan.mode === "crash"
         ? Math.max(coreCrashPoint, recoveryPlan.crashFloor)
@@ -1144,18 +1153,21 @@ export default function GameClient() {
   const chooseRole = (ticketIndex: number, roleId: RoleId) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket)) return;
-    const next = ticketsRef.current.map((current, index) => index === ticketIndex ? {
+    const selected = ticketsRef.current.map((current, index) => index === ticketIndex ? {
       ...current,
       roleId,
       autoCash: roleId === "tomato" ? null : current.autoCash,
     } : current);
-    const nextRule = duoRuleFor(next.map((current) => current.roleId));
+    const nextRule = duoRuleFor(selected.map((current) => current.roleId));
     const nextFixedTarget = nextRule?.kind === "contract" && nextRule.targetMode === "fixed" ? nextRule.target : null;
+    const selectedContract = nextRule?.kind === "contract" && nextRule.targetMode === "selected";
+    const next = selected.map((current) => {
+      const target = Math.max(nextFixedTarget ?? (current.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01), current.autoCashTarget);
+      return { ...current, autoCashTarget: target, autoCash: current.autoCash ? target : null };
+    });
     ticketsRef.current = next;
     setTickets(next);
-    setAutoCashInputs(next.map((current) => nextFixedTarget
-      ? Math.max(nextFixedTarget, current.autoCashTarget).toFixed(2)
-      : current.autoCashTarget.toFixed(2)));
+    setAutoCashInputs(next.map((current) => current.autoCashTarget.toFixed(2)));
     tone(650);
   };
 
@@ -1187,8 +1199,9 @@ export default function GameClient() {
   const toggleAutoCash = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket) || usesTomatoAuto(ticket)) return;
-    const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
-    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+    const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
+    const minTarget = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
+    const maxTarget = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
     const target = normalizeAutoCashInput(ticket.autoCashTarget, minTarget, maxTarget, minTarget);
     updateTicket(ticketIndex, (current) => ({ ...current, autoCashTarget: target, autoCash: current.autoCash ? null : target }));
     setAutoCashInputs((current) => current.map((value, index) => index === ticketIndex ? target.toFixed(2) : value));
@@ -1198,8 +1211,9 @@ export default function GameClient() {
   const changeAutoCashTarget = (ticketIndex: number, nextValue: number) => {
     const ticket = ticketsRef.current[ticketIndex];
     if (!canEditUnplacedTicket(ticket)) return;
-    const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
-    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+    const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
+    const minTarget = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
+    const maxTarget = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
     const target = normalizeAutoCashInput(nextValue, minTarget, maxTarget, ticket.autoCashTarget);
     updateTicket(ticketIndex, (current) => ({
       ...current,
@@ -1211,8 +1225,9 @@ export default function GameClient() {
 
   const commitAutoCashInput = (ticketIndex: number) => {
     const ticket = ticketsRef.current[ticketIndex];
-    const minTarget = fixedManualContract ? selectedDuoRule.target : 1.01;
-    const maxTarget = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+    const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
+    const minTarget = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
+    const maxTarget = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
     changeAutoCashTarget(ticketIndex, normalizeAutoCashInput(autoCashInputs[ticketIndex], minTarget, maxTarget, ticket.autoCashTarget));
   };
 
@@ -1433,8 +1448,9 @@ export default function GameClient() {
             const duoContract = duoActive && selectedDuoRule?.kind === "contract";
             const pumpkinChallenge = !fixedManualContract && (ticket.roleId === "pumpkin" || ticket.pumpkinContract.active || duoContract);
             const challengeTargetEditable = !duoContract || selectedDuoRule?.targetMode === "selected";
-            const minAutoCash = fixedManualContract ? selectedDuoRule.target : 1.01;
-            const maxAutoCash = !fixedManualContract && ticket.roleId === "pumpkin" ? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
+            const selectedContract = selectedDuoRule?.kind === "contract" && selectedDuoRule.targetMode === "selected";
+            const minAutoCash = fixedManualContract ? selectedDuoRule?.target ?? 1.01 : ticket.roleId === "pumpkin" || selectedContract ? PUMPKIN_MIN_TARGET : 1.01;
+            const maxAutoCash = !fixedManualContract && (ticket.roleId === "pumpkin" || selectedContract) ? selectedDuoRule?.max ?? PUMPKIN_MAX_TARGET : MAX_SETTLEMENT_MULTIPLIER;
             const roleDetail = duoActive || duoPreviewActive
               ? duoCardDetail(ticket, ticketIndex)
               : ticket.roleId === "peapod"

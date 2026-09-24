@@ -2,15 +2,15 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  calibratePumpkinContracts,
-  calibrateRoundBaseRtp,
+  calibratePumpkinCrashCurve,
+  calibrateRoundCrashCurve,
   CORE_RTP,
-  crashPointFromUnit,
+  crashPointFromCurveUnit,
   createPumpkinContract,
   describeDuoPair,
   duoRuntimeForTicket,
-  expectedPumpkinContractReturn,
-  expectedRoundReturn,
+  expectedPumpkinContractReturnForCurve,
+  expectedRoundReturnForCurve,
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
   ROLE_NAMES,
@@ -23,8 +23,9 @@ import {
 const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
 const abilityKeys = [...roleIds, "target", "peapodTarget", "peapodPrize"];
 const sampleCount = Number.parseInt(process.argv[2] ?? "1000000", 10);
-const outputPath = path.resolve(process.argv[3] ?? "outputs/rtp-core-all-combinations-v36.json");
-const csvPath = outputPath.replace(/\.json$/i, ".csv");
+const outputArgument = process.argv[3] ?? "outputs/rtp-core-all-combinations-v37.json";
+const outputPath = outputArgument === "-" ? null : path.resolve(outputArgument);
+const csvPath = outputPath?.replace(/\.json$/i, ".csv") ?? null;
 
 function mulberry32(seed) {
   let state = seed >>> 0;
@@ -85,7 +86,7 @@ function cacheKey(wagers) {
   ].join(":" )).join("|");
 }
 
-function sampleRegular(roleIdsForRun, rollsByTicket, rng, baseCache) {
+function sampleRegular(roleIdsForRun, rollsByTicket, rng, curveCache) {
   const runtimes = roleIdsForRun.length === 2
     ? roleIdsForRun.map((_, index) => duoRuntimeForTicket(roleIdsForRun, rollsByTicket, index))
     : [null];
@@ -94,9 +95,9 @@ function sampleRegular(roleIdsForRun, rollsByTicket, rng, baseCache) {
     : singleTarget(roleId, rollsByTicket[index]));
   const wagers = roleIdsForRun.map((roleId, index) => wagerFor(roleId, targets[index], runtimes[index], rollsByTicket[index]));
   const key = cacheKey(wagers);
-  const baseRtp = baseCache.get(key) ?? calibrateRoundBaseRtp(wagers);
-  baseCache.set(key, baseRtp);
-  const crashPoint = crashPointFromUnit(rng(), baseRtp);
+  const crashCurve = curveCache.get(key) ?? calibrateRoundCrashCurve(wagers);
+  curveCache.set(key, crashCurve);
+  const crashPoint = crashPointFromCurveUnit(rng(), crashCurve);
   const payout = wagers.reduce((sum, wager, index) => {
     if (crashPoint < wager.target) return sum;
     return sum + settleSuccessfulCashout(
@@ -112,7 +113,7 @@ function sampleRegular(roleIdsForRun, rollsByTicket, rng, baseCache) {
       },
     ).payout;
   }, 0);
-  return { payout, expectedPayout: expectedRoundReturn(wagers, baseRtp), baseRtp, rounds: 1 };
+  return { payout, expectedPayout: expectedRoundReturnForCurve(wagers, crashCurve), crashCurve, rounds: 1 };
 }
 
 function contractSetup(roleIdsForRun, rollsByTicket) {
@@ -127,18 +128,18 @@ function contractSetup(roleIdsForRun, rollsByTicket) {
 }
 
 function sampleContract(initialContracts, rng) {
-  const baseRtp = calibratePumpkinContracts(initialContracts);
-  let contracts = initialContracts.map((contract) => ({ ...contract, baseRtp }));
-  const expectedPayout = contracts.reduce((sum, contract) => sum + expectedPumpkinContractReturn(
+  const crashCurve = calibratePumpkinCrashCurve(initialContracts);
+  let contracts = initialContracts.map((contract) => ({ ...contract, crashCurve }));
+  const expectedPayout = contracts.reduce((sum, contract) => sum + expectedPumpkinContractReturnForCurve(
     contract.stake,
     contract.target,
-    baseRtp,
+    crashCurve,
     contract,
   ), 0);
   let payout = 0;
   let rounds = 0;
   while (contracts.some((contract) => contract.active)) {
-    const crashPoint = crashPointFromUnit(rng(), baseRtp);
+    const crashPoint = crashPointFromCurveUnit(rng(), crashCurve);
     rounds += 1;
     contracts = contracts.map((contract) => {
       if (!contract.active) return contract;
@@ -148,7 +149,7 @@ function sampleContract(initialContracts, rng) {
       return settlement.contract;
     });
   }
-  return { payout, expectedPayout, baseRtp, rounds };
+  return { payout, expectedPayout, crashCurve, rounds };
 }
 
 function combinations() {
@@ -164,11 +165,12 @@ function combinations() {
 
 function simulateCombination(configuration) {
   const rng = mulberry32(seedFor(configuration.roleIds.join("|")));
-  const baseCache = new Map();
+  const curveCache = new Map();
   const stake = configuration.roleIds.length;
   let totalPayout = 0;
   let totalExpectedPayout = 0;
-  let totalBaseRtp = 0;
+  let totalOpeningSurvival = 0;
+  let totalCurveExponent = 0;
   let totalRounds = 0;
   let nonzero = 0;
   let meanPayout = 0;
@@ -179,10 +181,11 @@ function simulateCombination(configuration) {
     const contracts = contractSetup(configuration.roleIds, rollsByTicket);
     const sample = contracts
       ? sampleContract(contracts, rng)
-      : sampleRegular(configuration.roleIds, rollsByTicket, rng, baseCache);
+      : sampleRegular(configuration.roleIds, rollsByTicket, rng, curveCache);
     totalPayout += sample.payout;
     totalExpectedPayout += sample.expectedPayout;
-    totalBaseRtp += sample.baseRtp;
+    totalOpeningSurvival += sample.crashCurve.openingSurvival;
+    totalCurveExponent += sample.crashCurve.exponent;
     totalRounds += sample.rounds;
     if (sample.payout > 0) nonzero += 1;
     const delta = sample.payout - meanPayout;
@@ -214,7 +217,8 @@ function simulateCombination(configuration) {
     ci95High: rtp + 1.96 * standardError,
     withinFourStandardErrors: Math.abs(rtp - CORE_RTP) <= tolerance,
     nonzeroRate: nonzero / sampleCount,
-    meanBaseRtp: totalBaseRtp / sampleCount,
+    instantBustRate: 1 - totalOpeningSurvival / sampleCount,
+    meanCurveExponent: totalCurveExponent / sampleCount,
     meanRounds: totalRounds / sampleCount,
   };
 }
@@ -228,7 +232,7 @@ function toCsv(results) {
   const headers = [
     "id", "type", "label", "ability", "samples", "ticket_count", "total_bet", "total_payout",
     "analytical_rtp_pct", "simulated_rtp_pct", "deviation_pp", "standard_error_pp", "ci95_low_pct",
-    "ci95_high_pct", "within_4se", "nonzero_rate_pct", "mean_base_rtp_pct", "mean_rounds",
+    "ci95_high_pct", "within_4se", "nonzero_rate_pct", "instant_bust_rate_pct", "mean_curve_exponent", "mean_rounds",
   ];
   const rows = results.map((result) => [
     result.id,
@@ -247,7 +251,8 @@ function toCsv(results) {
     result.ci95High * 100,
     result.withinFourStandardErrors,
     result.nonzeroRate * 100,
-    result.meanBaseRtp * 100,
+    result.instantBustRate * 100,
+    result.meanCurveExponent,
     result.meanRounds,
   ]);
   return `${[headers, ...rows].map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
@@ -257,7 +262,7 @@ if (!Number.isFinite(sampleCount) || sampleCount < 2) throw new Error("sampleCou
 
 const results = combinations().map((configuration) => {
   const result = simulateCombination(configuration);
-  console.log(`${result.label.padEnd(13)} ${(result.simulatedRtp * 100).toFixed(3)}% · exact ${(result.analyticalRtp * 100).toFixed(6)}%`);
+  console.log(`${result.label.padEnd(13)} ${(result.simulatedRtp * 100).toFixed(3)}% · exact ${(result.analyticalRtp * 100).toFixed(6)}% · 1.00× ${(result.instantBustRate * 100).toFixed(2)}% · curve ${result.meanCurveExponent.toFixed(3)}`);
   return result;
 });
 const maxAnalyticalDeviation = Math.max(...results.map((result) => Math.abs(result.analyticalRtp - CORE_RTP)));
@@ -267,8 +272,8 @@ const [engineSource, scriptSource] = await Promise.all([
   readFile(new URL(import.meta.url)),
 ]);
 const report = {
-  schema: "veggie-dash-rtp-validation/5",
-  variant: "six-role-recovery-pool-v36-core",
+  schema: "veggie-dash-rtp-validation/6",
+  variant: "six-role-shaped-curve-v37-core",
   generatedAt: new Date().toISOString(),
   coreTargetRtp: CORE_RTP,
   longTermTargetRtp: TARGET_RTP,
@@ -298,10 +303,12 @@ const report = {
   results,
 };
 
-await mkdir(path.dirname(outputPath), { recursive: true });
-await Promise.all([
-  writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`),
-  writeFile(csvPath, toCsv(results)),
-]);
+if (outputPath && csvPath) {
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await Promise.all([
+    writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`),
+    writeFile(csvPath, toCsv(results)),
+  ]);
+}
 console.log(JSON.stringify({ outputPath, csvPath, passed: report.acceptance.passed, maxAnalyticalDeviation, sampledFailures: report.acceptance.sampledFailures }, null, 2));
 if (!report.acceptance.passed) process.exitCode = 1;

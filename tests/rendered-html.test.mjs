@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import { readFile, stat } from "node:fs/promises";
 import test from "node:test";
 import { bettingWindowOpen, cancelPendingBet, canEditUnplacedTicket, canStartRoundEarly, isAutoCashInputDraft, normalizeAutoCashInput } from "../app/ticket-actions.mjs";
-import { createRecoveryPool, normalizeRecoveryPool, planRecoveryRelease, RECOVERY_CORE_SCALES, recoveryCoreScale, reserveRecoveryProfit, settleRecoveryPool, settleRecoveryReservation } from "../app/recovery-pool.mjs";
+import { createRecoveryPool, normalizeRecoveryPool, planRecoveryRelease, reserveRecoveryPayout, settleRecoveryPool, settleRecoveryReservation } from "../app/recovery-pool.mjs";
 import {
   calibratePumpkinContracts,
+  calibratePumpkinCrashCurve,
   calibrateRoundBaseRtp,
+  calibrateRoundCrashCurve,
   CORE_RTP,
   crashPointFromUnit,
+  crashPointFromCurveUnit,
   createPumpkinContract,
   createVisualNearMiss,
   describeDuoPair,
@@ -18,15 +21,18 @@ import {
   expectedRoundReturn,
   expectedSuccessfulPayout,
   expectedPumpkinContractReturn,
+  expectedPumpkinContractReturnForCurve,
+  expectedRoundReturnForCurve,
   peapodPayoutFactorFromUnit,
   peapodThresholdFromUnit,
+  PUMPKIN_MIN_TARGET,
   PUMPKIN_MAX_TARGET,
   pumpkinContractBaseRtp,
   settleCrashRole,
   settlePumpkinCashout,
   settlePumpkinCrash,
   settleSuccessfulCashout,
-  survivalAt,
+  survivalAtCurve,
   TARGET_RTP,
 } from "../app/rtp-engine.mjs";
 
@@ -145,7 +151,7 @@ test("renders the six-role Veggie Dash mobile game shell", async () => {
   assert.doesNotMatch(source, /雙注預覽｜/);
   assert.doesNotMatch(source, /stage-duo-preview|目前雙注效果/);
   assert.doesNotMatch(html, /目前雙注效果/);
-  assert.equal((html.match(/5×後 Cash Out：35%機率獎金×1\.8/g) ?? []).length, 2);
+  assert.equal((html.match(/4×後 Cash Out：35%機率獎金×1\.8/g) ?? []).length, 2);
   assert.equal((html.match(/辣味升級/g) ?? []).length, 2);
   assert.match(source, /selectedRoleIds\[0\] === selectedRoleIds\[1\]/);
   assert.match(source, /className="duo-role is-current"/);
@@ -202,7 +208,7 @@ test("keeps crash and per-role rolls deterministic for each committed round", as
   assert.match(source, /digestHex\(seed \+ ":near-miss"\)/);
   assert.match(source, /abilityKeys = \["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom", "target", "peapodTarget", "peapodPrize"\]/);
   assert.match(source, /digestHex\(`\$\{seed\}:ticket:\$\{index\}:\$\{key\}`\)/);
-  assert.match(source, /calibrateRoundBaseRtp\(ticketsToRtpWagers\(currentTickets, currentSpec\)\)/);
+  assert.match(source, /calibrateRoundCrashCurve\(ticketsToRtpWagers\(currentTickets, currentSpec\)\)/);
 });
 
 test("keeps the post-cashout chase visual-only, bounded, and unlabeled", async () => {
@@ -237,8 +243,8 @@ test("keeps every duo on one shared crash without parlay settlement", async () =
 
 test("replaces both base abilities with one fused rule", () => {
   const potatoChili = duoRuntimeFromRolls(["potato", "chili"], hitRolls);
-  assert.equal(settleSuccessfulCashout("chili", 100, 4.99, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 499);
-  assert.equal(settleSuccessfulCashout("potato", 100, 5, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 900);
+  assert.equal(settleSuccessfulCashout("chili", 100, 3.99, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 399);
+  assert.equal(settleSuccessfulCashout("potato", 100, 4, hitRolls, ["potato", "chili"], { duoRuntime: potatoChili }).payout, 720);
 
   const chiliMushroom = duoRuntimeFromRolls(["chili", "mushroom"], hitRolls);
   assert.equal(settleSuccessfulCashout("chili", 100, 5, hitRolls, ["chili", "mushroom"], { duoRuntime: chiliMushroom }).payout, 3000);
@@ -246,9 +252,9 @@ test("replaces both base abilities with one fused rule", () => {
 
   const peaMushroom = duoRuntimeFromRolls(["peapod", "mushroom"], { ...hitRolls, peapodTarget: .99, peapodPrize: .99 });
   assert.equal(peaMushroom.threshold, 5);
-  assert.equal(peaMushroom.factor, 12);
+  assert.equal(peaMushroom.factor, 8);
   assert.equal(settleSuccessfulCashout("peapod", 100, 4.99, hitRolls, ["peapod", "mushroom"], { duoRuntime: peaMushroom }).payout, 499);
-  assert.equal(settleSuccessfulCashout("peapod", 100, 5, hitRolls, ["peapod", "mushroom"], { duoRuntime: peaMushroom }).payout, 6000);
+  assert.equal(settleSuccessfulCashout("peapod", 100, 5, hitRolls, ["peapod", "mushroom"], { duoRuntime: peaMushroom }).payout, 4000);
 });
 
 test("keeps thresholds and showcase forcing honest", () => {
@@ -268,7 +274,9 @@ test("keeps thresholds and showcase forcing honest", () => {
 });
 
 test("locks one pumpkin stake across three consecutive successful rounds", () => {
+  assert.equal(PUMPKIN_MIN_TARGET, 2);
   const initial = createPumpkinContract(100, 2);
+  assert.ok(1 - initial.crashCurve.openingSurvival <= .25);
   assert.equal(initial.baseRtp, pumpkinContractBaseRtp(2));
   assert.equal(settlePumpkinCashout(initial, 1.99).accepted, false);
   const first = settlePumpkinCashout(initial, 2);
@@ -299,8 +307,8 @@ test("draws independent auto targets for both tomato-link tickets", async () => 
     { roleId: "potato", stake: 100, target: first.autoTarget, duoThreshold: first.threshold, duoFactor: first.factor },
     { roleId: "tomato", stake: 100, target: second.autoTarget, duoThreshold: second.threshold, duoFactor: second.factor },
   ];
-  const baseRtp = calibrateRoundBaseRtp(wagers);
-  assert.ok(Math.abs(expectedRoundReturn(wagers, baseRtp) / 200 - CORE_RTP) < 1e-9);
+  const crashCurve = calibrateRoundCrashCurve(wagers);
+  assert.ok(Math.abs(expectedRoundReturnForCurve(wagers, crashCurve) / 200 - CORE_RTP) < 1e-9);
 
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
   assert.match(source, /function runtimeForTicket/);
@@ -328,16 +336,15 @@ test("removes the obsolete pumpkin refund label", async () => {
 test("calibrates and locks two independently drawn pumpkin-tomato contract targets to the 92% core", async () => {
   const first = createPumpkinContract(100, 2, { stages: 2, factor: 5, ruleKey: "pumpkin|tomato" });
   const second = createPumpkinContract(100, 5, { stages: 2, factor: 5, ruleKey: "pumpkin|tomato" });
-  const baseRtp = calibratePumpkinContracts([first, second]);
-  const expected = expectedPumpkinContractReturn(100, 2, baseRtp, { stages: 2, factor: 5 })
-    + expectedPumpkinContractReturn(100, 5, baseRtp, { stages: 2, factor: 5 });
-  assert.ok(baseRtp < CORE_RTP);
+  const crashCurve = calibratePumpkinCrashCurve([first, second]);
+  const expected = expectedPumpkinContractReturnForCurve(100, 2, crashCurve, { stages: 2, factor: 5 })
+    + expectedPumpkinContractReturnForCurve(100, 5, crashCurve, { stages: 2, factor: 5 });
   assert.ok(Math.abs(expected / 200 - CORE_RTP) < 1e-9);
-  const locked = [first, second].map((contract) => ({ ...contract, baseRtp }));
-  assert.equal(locked[0].baseRtp, locked[1].baseRtp);
+  const locked = [first, second].map((contract) => ({ ...contract, crashCurve }));
+  assert.deepEqual(locked[0].crashCurve, locked[1].crashCurve);
   const source = await readFile(new URL("../app/game-client.tsx", import.meta.url), "utf8");
-  assert.match(source, /pumpkinContract: \{ \.\.\.ticket\.pumpkinContract, baseRtp \}/);
-  assert.match(source, /activeContracts\.length \? activeContracts\[0\]\.baseRtp : regularBaseRtp/);
+  assert.match(source, /pumpkinContract: \{ \.\.\.ticket\.pumpkinContract, crashCurve \}/);
+  assert.match(source, /activeContracts\.length \? activeContracts\[0\]\.crashCurve : regularCrashCurve/);
 });
 
 test("keeps the chase meter cosmetic and emphasizes large results", async () => {
@@ -521,17 +528,44 @@ test("keeps role and fusion copy short and consistent", async () => {
   assert.doesNotMatch(source, /派彩|倍獎|成功 →|自動成功|總倍率×3|開跑揭曉.*門檻/);
 });
 
-test("maps the committed crash unit through the selected VI curve", () => {
-  const sampleCount = 300_000;
-  for (const baseRtp of [CORE_RTP, 0.85, 0.72, 0.58]) {
+test("maps the committed crash unit through the selected shaped VI curve", () => {
+  const sampleCount = 200_000;
+  const curves = [
+    calibrateRoundCrashCurve([{ roleId: "potato", stake: 1, target: 1.99, manual: true }]),
+    calibrateRoundCrashCurve([{ roleId: "chili", stake: 1, target: 5, manual: true }]),
+    calibrateRoundCrashCurve([
+      { roleId: "potato", stake: 1, target: 4, manual: true, duoThreshold: 4, duoFactor: 1.8 },
+      { roleId: "chili", stake: 1, target: 4, manual: true, duoThreshold: 4, duoFactor: 1.8 },
+    ]),
+  ];
+  for (const curve of curves) {
     for (const multiplier of [1.01, 1.5, 2, 5, 10, 50, 99.9]) {
       let wins = 0;
       for (let index = 0; index < sampleCount; index += 1) {
-        if (multiplier <= crashPointFromUnit((index + 0.5) / sampleCount, baseRtp)) wins += 1;
+        if (multiplier <= crashPointFromCurveUnit((index + 0.5) / sampleCount, curve)) wins += 1;
       }
-      assert.ok(Math.abs(multiplier * wins / sampleCount - baseRtp) < 0.0005);
-      assert.ok(Math.abs(survivalAt(multiplier, baseRtp) * multiplier - baseRtp) < 1e-12);
+      assert.ok(Math.abs(wins / sampleCount - survivalAtCurve(multiplier, curve)) < 0.0005);
     }
+  }
+});
+
+test("caps the tuned instant-bust concentration while keeping each core curve at 92%", () => {
+  const cases = [
+    [{ roleId: "potato", stake: 1, target: 1.99, manual: true }],
+    [{ roleId: "mushroom", stake: 1, target: 2, manual: true }],
+    [
+      { roleId: "potato", stake: 1, target: 1.99, manual: true, duoThreshold: 2, duoFactor: 1.7 },
+      { roleId: "potato", stake: 1, target: 1.99, manual: true, duoThreshold: 2, duoFactor: 1.7 },
+    ],
+    [
+      { roleId: "potato", stake: 1, target: 1.99, manual: true, duoThreshold: 2, duoFactor: 5 },
+      { roleId: "mushroom", stake: 1, target: 1.99, manual: true, duoThreshold: 2, duoFactor: 5 },
+    ],
+  ];
+  for (const wagers of cases) {
+    const curve = calibrateRoundCrashCurve(wagers);
+    assert.ok(1 - curve.openingSurvival <= .25 + 1e-9);
+    assert.ok(expectedRoundReturnForCurve(wagers, curve) <= CORE_RTP * wagers.reduce((sum, wager) => sum + wager.stake, 0) + 1e-9);
   }
 });
 
@@ -569,33 +603,39 @@ test("allocates half of the 92% core net loss and reconciles to the 96% long-ter
   assert.equal(plan.active, true);
   assert.equal(plan.mode, "crash");
   assert.equal(plan.crashFloor, 9);
-  const released = settleRecoveryPool(funded, { releaseActive: true, releasedProfit: 400, thresholdUnit: 1, cooldownUnit: .9 });
+  const released = settleRecoveryPool(funded, { releaseActive: true, releasedAmount: 400, thresholdUnit: 1, cooldownUnit: .9 });
   assert.equal(released.reserve, 0);
   assert.equal(released.cooldown, 3);
   assert.equal(released.thresholdFactor, 7);
 });
 
-test("never approves or records a pool-funded profit above the available reserve", () => {
+test("never approves or records a pool-funded payout above the available reserve", () => {
   const funded = { ...createRecoveryPool(), reserve: 100 };
-  const rejected = reserveRecoveryProfit(funded, 100.01);
+  const rejected = reserveRecoveryPayout(funded, 100.01);
   assert.equal(rejected.accepted, false);
   assert.equal(rejected.pool.reserve, 100);
-  const reserved = reserveRecoveryProfit(funded, 100);
+  const reserved = reserveRecoveryPayout(funded, 100);
   assert.equal(reserved.accepted, true);
   assert.equal(reserved.pool.reserve, 0);
   assert.equal(settleRecoveryReservation(reserved.pool, reserved.amount, false).reserve, 100);
   const paid = settleRecoveryReservation(reserved.pool, reserved.amount, true);
   assert.equal(paid.reserve, 0);
-  assert.equal(paid.totalReleasedProfit, 100);
-  assert.equal(normalizeRecoveryPool({ reserve: -1 }).reserve, 0);
+  assert.equal(paid.totalReleasedPayout, 100);
+  assert.equal(normalizeRecoveryPool({ reserve: -1 }).reserve, -1);
 });
 
-test("defines a calibrated recovery curve for every single role and unordered pair", () => {
-  const roleIds = ["potato", "chili", "pumpkin", "tomato", "peapod", "mushroom"];
-  assert.equal(Object.keys(RECOVERY_CORE_SCALES).length, 27);
-  for (const roleId of roleIds) assert.ok(recoveryCoreScale([roleId]) > 0 && recoveryCoreScale([roleId]) <= 1);
-  for (let first = 0; first < roleIds.length; first += 1) for (let second = first; second < roleIds.length; second += 1) {
-    const scale = recoveryCoreScale([roleIds[first], roleIds[second]]);
-    assert.ok(scale > 0 && scale <= 1, `${roleIds[first]} + ${roleIds[second]} is missing a recovery calibration`);
-  }
+test("charges the pool for the full incremental payout instead of creating a free returned stake", () => {
+  const funded = { ...createRecoveryPool(), reserve: 100 };
+  const settled = settleRecoveryPool(funded, { coreStake: 10, corePayout: 0, actualPayout: 40, releaseActive: true });
+  assert.equal(settled.reserve, 65);
+  assert.equal(settled.totalReleasedPayout, 40);
+});
+
+test("carries a negative pool balance forward before funding another recovery release", () => {
+  const loss = settleRecoveryPool(createRecoveryPool(), { coreStake: 1, corePayout: 0 });
+  const win = settleRecoveryPool(loss, { coreStake: 1, corePayout: 5 });
+  assert.equal(loss.reserve, .5);
+  assert.equal(win.reserve, -1.5);
+  assert.equal(planRecoveryRelease(win, 1).active, false);
+  assert.equal(settleRecoveryPool(win, { coreStake: 3, corePayout: 0 }).reserve, 0);
 });
